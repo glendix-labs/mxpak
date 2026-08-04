@@ -1,37 +1,45 @@
-// mxpak Marketplace TUI — Shore TEA 앱
+//// Runs the interactive mxpak Marketplace browser.
+////
 
-import gleam/dict.{type Dict}
+import gleam/dict
 import gleam/erlang/process
 import gleam/int
 import gleam/list
-import gleam/option.{None, Some}
+import gleam/option
+import gleam/otp/actor
+import gleam/result
 import mxpak/browser
 import mxpak/config
 import mxpak/downloader
-import mxpak/marketplace/helpers
+import mxpak/error
 import mxpak/marketplace/loader
-import mxpak/marketplace/process_mgr
-import mxpak/marketplace/state.{
-  type Model, type Msg, ApiVersionsReady, Browse, ChangePage, ConfirmVersion,
-  DownloadDone, GoBack, GoEnd, GoHome, InitialLoading, LoaderUpdated, Model,
-  MoveCursor, Quit, SearchChanged, SelectVersion, SessionReady, StartDownload,
-  ToggleSelection, VersionInfoReady, Working, display_size,
-}
+import mxpak/marketplace/pagination
+import mxpak/marketplace/process_manager
+import mxpak/marketplace/state
 import mxpak/marketplace/view
-import mxpak/registry/content_api.{fetch_size}
+import mxpak/registry/content_api
+import mxpak/registry/content_transport
 import mxpak/registry/version_merger
-import mxpak/registry/xas_parser.{type XasVersion}
+import mxpak/registry/xas_parser
 import mxpak/session
 import shore
 import shore/key
 import shore/style
 import shore/ui
 
-/// Marketplace TUI 실행
-pub fn run(pat: String, project_root: String) -> Nil {
-  let exit = process.new_subject()
+/// Represents a Marketplace TUI startup failure.
+pub type RunError {
+  /// The Shore actor could not be started.
+  TuiCouldNotStart(reason: actor.StartError)
+}
 
-  let assert Ok(_) =
+/// Runs the Marketplace TUI until the user exits.
+pub fn run(
+  pat pat: String,
+  project_root project_root: String,
+) -> Result(Nil, RunError) {
+  let exit = process.new_subject()
+  use _shore <- result.try(
     shore.spec_with_subject(
       init: fn(subject) { init(pat, project_root, subject, exit) },
       view: view_fn,
@@ -47,232 +55,251 @@ pub fn run(pat: String, project_root: String) -> Nil {
       redraw: shore.on_update(),
     )
     |> shore.start
-
-  let _ = process.receive_forever(exit)
-  Nil
+    |> result.map_error(TuiCouldNotStart),
+  )
+  process.receive_forever(exit)
+  Ok(Nil)
 }
 
-// ── TEA: init ──
-
+// -- Tea: Init --
 fn init(
   pat: String,
   project_root: String,
-  shore_subject: process.Subject(Msg),
+  shore_subject: process.Subject(state.Msg),
   exit_subject: process.Subject(Nil),
-) -> #(Model, List(fn() -> Msg)) {
+) -> #(state.Model, List(fn() -> state.Msg)) {
   let model =
-    Model(
+    state.Model(
       pat: pat,
       project_root: project_root,
       all_widgets: [],
-      filtered: None,
+      filtered: option.None,
       page_index: 0,
       cursor: 0,
       selected: [],
       all_loaded: False,
-      loader: None,
+      loader: option.None,
       offset: 0,
       search_query: "",
-      view_mode: InitialLoading("위젯 목록 불러오는 중..."),
-      status_msg: None,
-      shore_subject: Some(shore_subject),
-      exit_subject: Some(exit_subject),
+      view_mode: state.InitialLoading("위젯 목록 불러오는 중..."),
+      status_msg: option.None,
+      shore_subject: option.Some(shore_subject),
+      exit_subject: option.Some(exit_subject),
     )
-
   let load_first = fn() {
-    case content_api.fetch_content_page(pat, 0, fetch_size) {
+    case content_transport.fetch_content_page(pat, 0, content_api.fetch_size) {
       Ok(page) ->
-        LoaderUpdated(loader.LoaderUpdate(
+        state.LoaderUpdated(loader.LoaderUpdate(
           page.widgets,
-          fetch_size,
+          content_api.fetch_size,
           page.all_done,
         ))
-      Error(_) -> LoaderUpdated(loader.LoaderUpdate([], 0, True))
+      Error(_) -> state.LoaderUpdated(loader.LoaderUpdate([], 0, True))
     }
   }
-
   #(model, [load_first])
 }
 
-// ── TEA: view ──
-
-fn view_fn(model: Model) -> shore.Node(Msg) {
+// -- Tea: View --
+fn view_fn(model: state.Model) -> shore.Node(state.Msg) {
   case model.view_mode {
-    InitialLoading(label) -> view.view_loading(label)
-    Working(label) -> view.view_loading(label)
-    Browse ->
+    state.InitialLoading(label) -> view.view_loading(label)
+    state.Working(label) -> view.view_loading(label)
+    state.Browse ->
       ui.col([
         view.view_browse(
-          helpers.current_page_items(model),
+          pagination.current_page_items(model),
           model.cursor,
           model.selected,
           model.page_index + 1,
-          helpers.total_pages_str(model),
+          pagination.total_pages_str(model),
           model.status_msg,
-          model.all_loaded,
+          case model.all_loaded {
+            True -> view.Loaded
+            False -> view.Loading
+          },
         ),
-        ui.input("  검색: ", model.search_query, style.Fill, SearchChanged),
-        ui.keybind(key.Up, MoveCursor(-1)),
-        ui.keybind(key.Down, MoveCursor(1)),
-        ui.keybind(key.Left, ChangePage(-1)),
-        ui.keybind(key.Right, ChangePage(1)),
-        ui.keybind(key.PageUp, ChangePage(-1)),
-        ui.keybind(key.PageDown, ChangePage(1)),
-        ui.keybind(key.Home, GoHome),
-        ui.keybind(key.End, GoEnd),
-        ui.keybind(key.Char(" "), ToggleSelection),
-        ui.keybind(key.Enter, StartDownload),
+        ui.input("  검색: ", model.search_query, style.Fill, state.SearchChanged),
+        ui.keybind(key.Up, state.MoveCursor(-1)),
+        ui.keybind(key.Down, state.MoveCursor(1)),
+        ui.keybind(key.Left, state.ChangePage(-1)),
+        ui.keybind(key.Right, state.ChangePage(1)),
+        ui.keybind(key.PageUp, state.ChangePage(-1)),
+        ui.keybind(key.PageDown, state.ChangePage(1)),
+        ui.keybind(key.Home, state.GoHome),
+        ui.keybind(key.End, state.GoEnd),
+        ui.keybind(key.Char(" "), state.ToggleSelection),
+        ui.keybind(key.Enter, state.StartDownload),
       ])
-    SelectVersion(name, versions, ver_cursor, _, _, _) ->
+    state.SelectVersion(name, versions, ver_cursor, _, _, _) ->
       ui.col([
         view.view_version(name, versions, ver_cursor, model.status_msg),
-        ui.keybind(key.Up, MoveCursor(-1)),
-        ui.keybind(key.Down, MoveCursor(1)),
-        ui.keybind(key.Home, GoHome),
-        ui.keybind(key.End, GoEnd),
-        ui.keybind(key.Enter, ConfirmVersion),
-        ui.keybind(key.Esc, GoBack),
+        ui.keybind(key.Up, state.MoveCursor(-1)),
+        ui.keybind(key.Down, state.MoveCursor(1)),
+        ui.keybind(key.Home, state.GoHome),
+        ui.keybind(key.End, state.GoEnd),
+        ui.keybind(key.Enter, state.ConfirmVersion),
+        ui.keybind(key.Esc, state.GoBack),
       ])
   }
 }
 
-// ── TEA: update ──
-
-fn update(model: Model, msg: Msg) -> #(Model, List(fn() -> Msg)) {
+// -- Tea: Update --
+fn update(
+  model: state.Model,
+  msg: state.Msg,
+) -> #(state.Model, List(fn() -> state.Msg)) {
   case model.view_mode {
-    Working(_) | InitialLoading(_) ->
+    state.Working(_) | state.InitialLoading(_) ->
       case msg {
-        Quit
-        | SessionReady(_)
-        | VersionInfoReady(..)
-        | ApiVersionsReady(..)
-        | DownloadDone(..)
-        | LoaderUpdated(_) -> update_inner(model, msg)
-        _ -> #(model, [])
+        state.Quit
+        | state.SessionReady(_)
+        | state.VersionInfoReady(..)
+        | state.ApiVersionsReady(..)
+        | state.DownloadDone(..)
+        | state.LoaderUpdated(_) -> update_inner(model, msg)
+        state.MoveCursor(_)
+        | state.ChangePage(_)
+        | state.GoHome
+        | state.GoEnd
+        | state.ToggleSelection
+        | state.SearchChanged(_)
+        | state.StartDownload
+        | state.ConfirmVersion
+        | state.GoBack -> #(model, [])
       }
-    _ -> update_inner(model, msg)
+    state.Browse | state.SelectVersion(..) -> update_inner(model, msg)
   }
 }
 
-fn update_inner(model: Model, msg: Msg) -> #(Model, List(fn() -> Msg)) {
+fn update_inner(
+  model: state.Model,
+  msg: state.Msg,
+) -> #(state.Model, List(fn() -> state.Msg)) {
   case msg {
-    Quit -> {
-      process_mgr.cleanup(model)
+    state.Quit -> {
+      process_manager.cleanup(model)
       case model.exit_subject {
-        Some(exit) -> process.send(exit, Nil)
-        None -> Nil
+        option.Some(exit) -> process.send(exit, Nil)
+        option.None -> Nil
       }
       #(model, [])
     }
-
-    LoaderUpdated(loader.LoaderUpdate(widgets, offset, done)) -> {
+    state.LoaderUpdated(loader.LoaderUpdate(widgets, offset, done)) -> {
       let was_initial_loading = case model.view_mode {
-        InitialLoading(_) -> True
-        _ -> False
+        state.InitialLoading(_) -> True
+        state.Browse | state.SelectVersion(..) | state.Working(_) -> False
       }
       let new_model =
-        Model(
+        state.Model(
           ..model,
           all_widgets: widgets,
           offset: offset,
           all_loaded: done,
           view_mode: case was_initial_loading {
-            True -> Browse
+            True -> state.Browse
             False -> model.view_mode
           },
         )
       let new_model = case done, new_model.loader {
-        False, None -> process_mgr.start_loader(new_model)
+        False, option.None -> process_manager.start_loader(new_model)
         _, _ -> new_model
       }
       let new_model = case new_model.search_query {
         "" -> new_model
         q ->
-          Model(
+          state.Model(
             ..new_model,
-            filtered: Some(helpers.filter_widgets(new_model.all_widgets, q)),
+            filtered: option.Some(pagination.filter_widgets(
+              new_model.all_widgets,
+              q,
+            )),
           )
       }
       #(new_model, [])
     }
-
-    MoveCursor(delta) -> {
+    state.MoveCursor(delta) -> {
       case model.view_mode {
-        Browse -> {
-          let page_len = list.length(helpers.current_page_items(model))
+        state.Browse -> {
+          let page_len = list.length(pagination.current_page_items(model))
           case page_len {
             0 -> #(model, [])
             _ -> {
               let new_cursor = int.clamp(model.cursor + delta, 0, page_len - 1)
-              #(Model(..model, cursor: new_cursor), [])
+              #(state.Model(..model, cursor: new_cursor), [])
             }
           }
         }
-        SelectVersion(n, vs, vc, q, x, cid) -> {
+        state.SelectVersion(n, vs, vc, q, x, cid) -> {
           let max = int.max(0, list.length(vs) - 1)
           let new_vc = int.clamp(vc + delta, 0, max)
           #(
-            Model(
+            state.Model(
               ..model,
-              view_mode: SelectVersion(n, vs, new_vc, q, x, cid),
-              status_msg: None,
+              view_mode: state.SelectVersion(n, vs, new_vc, q, x, cid),
+              status_msg: option.None,
             ),
             [],
           )
         }
-        _ -> #(model, [])
+        state.InitialLoading(_) | state.Working(_) -> #(model, [])
       }
     }
-
-    ChangePage(delta) -> {
-      let source_len = list.length(helpers.get_source(model))
+    state.ChangePage(delta) -> {
+      let source_len = list.length(pagination.get_source(model))
       let max_page = case source_len {
         0 -> 0
-        _ -> { source_len - 1 } / display_size
+        _ -> { source_len - 1 } / state.display_size
       }
       let new_page = model.page_index + delta
       case new_page < 0 || new_page > max_page {
         True -> #(model, [])
         False -> #(
-          Model(
+          state.Model(
             ..model,
             page_index: new_page,
             cursor: 0,
             selected: [],
-            status_msg: None,
+            status_msg: option.None,
           ),
           [],
         )
       }
     }
-
-    GoHome -> {
+    state.GoHome -> {
       case model.view_mode {
-        Browse -> #(Model(..model, cursor: 0), [])
-        SelectVersion(n, vs, _, q, x, cid) -> #(
-          Model(..model, view_mode: SelectVersion(n, vs, 0, q, x, cid)),
+        state.Browse -> #(state.Model(..model, cursor: 0), [])
+        state.SelectVersion(n, vs, _, q, x, cid) -> #(
+          state.Model(
+            ..model,
+            view_mode: state.SelectVersion(n, vs, 0, q, x, cid),
+          ),
           [],
         )
-        _ -> #(model, [])
+        state.InitialLoading(_) | state.Working(_) -> #(model, [])
       }
     }
-
-    GoEnd -> {
+    state.GoEnd -> {
       case model.view_mode {
-        Browse -> {
-          let page_len = list.length(helpers.current_page_items(model))
-          #(Model(..model, cursor: int.max(0, page_len - 1)), [])
+        state.Browse -> {
+          let page_len = list.length(pagination.current_page_items(model))
+          #(state.Model(..model, cursor: int.max(0, page_len - 1)), [])
         }
-        SelectVersion(n, vs, _, q, x, cid) -> {
+        state.SelectVersion(n, vs, _, q, x, cid) -> {
           let max = int.max(0, list.length(vs) - 1)
-          #(Model(..model, view_mode: SelectVersion(n, vs, max, q, x, cid)), [])
+          #(
+            state.Model(
+              ..model,
+              view_mode: state.SelectVersion(n, vs, max, q, x, cid),
+            ),
+            [],
+          )
         }
-        _ -> #(model, [])
+        state.InitialLoading(_) | state.Working(_) -> #(model, [])
       }
     }
-
-    ToggleSelection -> {
-      let page_len = list.length(helpers.current_page_items(model))
+    state.ToggleSelection -> {
+      let page_len = list.length(pagination.current_page_items(model))
       case model.cursor < page_len {
         False -> #(model, [])
         True -> {
@@ -280,18 +307,17 @@ fn update_inner(model: Model, msg: Msg) -> #(Model, List(fn() -> Msg)) {
             True -> list.filter(model.selected, fn(i) { i != model.cursor })
             False -> [model.cursor, ..model.selected]
           }
-          #(Model(..model, selected: new_selected), [])
+          #(state.Model(..model, selected: new_selected), [])
         }
       }
     }
-
-    SearchChanged(query) -> {
+    state.SearchChanged(query) -> {
       let filtered = case query {
-        "" -> None
-        _ -> Some(helpers.filter_widgets(model.all_widgets, query))
+        "" -> option.None
+        _ -> option.Some(pagination.filter_widgets(model.all_widgets, query))
       }
       #(
-        Model(
+        state.Model(
           ..model,
           search_query: query,
           filtered: filtered,
@@ -302,9 +328,8 @@ fn update_inner(model: Model, msg: Msg) -> #(Model, List(fn() -> Msg)) {
         [],
       )
     }
-
-    StartDownload -> {
-      let page = helpers.current_page_items(model)
+    state.StartDownload -> {
+      let page = pagination.current_page_items(model)
       let page_len = list.length(page)
       case page_len {
         0 -> #(model, [])
@@ -324,71 +349,71 @@ fn update_inner(model: Model, msg: Msg) -> #(Model, List(fn() -> Msg)) {
                   }
               }
             })
-
-          let model = process_mgr.stop_loader(model)
+          let model = process_manager.stop_loader(model)
           let model =
-            Model(..model, view_mode: Working("세션 확인 중..."), status_msg: None)
-
+            state.Model(
+              ..model,
+              view_mode: state.Working("세션 확인 중..."),
+              status_msg: option.None,
+            )
           let widgets = selected_widgets
           let cmd = fn() {
             case session.ensure_session() {
               Ok(_) -> {
                 let content_ids = list.map(widgets, fn(s) { s.0 })
                 let result = browser.get_all_versions(content_ids)
-                VersionInfoReady(widgets, result)
+                state.VersionInfoReady(widgets, result)
               }
-              Error(msg) -> SessionReady(Error(msg))
+              Error(msg) -> state.SessionReady(Error(msg))
             }
           }
-
           #(model, [cmd])
         }
       }
     }
-
-    SessionReady(result) -> {
+    state.SessionReady(result) -> {
       case result {
         Ok(_) -> #(model, [])
         Error(msg) -> {
-          let model = process_mgr.start_loader(model)
+          let model = process_manager.start_loader(model)
           #(
-            Model(
+            state.Model(
               ..model,
-              view_mode: Browse,
-              status_msg: Some("  세션 확인 실패: " <> msg),
+              view_mode: state.Browse,
+              status_msg: option.Some("  세션 확인 실패: " <> error.message(msg)),
             ),
             [],
           )
         }
       }
     }
-
-    VersionInfoReady(widgets, result) -> {
+    state.VersionInfoReady(widgets, result) -> {
       case result {
         Ok(xas_data) -> enter_version_mode(model, widgets, xas_data)
         Error(msg) -> {
-          let model = process_mgr.start_loader(model)
+          let model = process_manager.start_loader(model)
           #(
-            Model(
+            state.Model(
               ..model,
-              view_mode: Browse,
-              status_msg: Some("  버전 정보 조회 실패: " <> msg),
+              view_mode: state.Browse,
+              status_msg: option.Some("  버전 정보 조회 실패: " <> error.message(msg)),
             ),
             [],
           )
         }
       }
     }
-
-    ApiVersionsReady(name, content_id, queue, xas_data, result) -> {
+    state.ApiVersionsReady(name, content_id, queue, xas_data, result) -> {
       case result {
         Ok(api_versions) -> {
           case api_versions {
             [] ->
               enter_version_mode(
-                Model(
+                state.Model(
                   ..model,
-                  status_msg: Some("  " <> name <> " — 버전 정보를 가져올 수 없습니다"),
+                  status_msg: option.Some(
+                    "  " <> name <> " — 버전 정보를 가져올 수 없습니다",
+                  ),
                 ),
                 queue,
                 xas_data,
@@ -400,9 +425,9 @@ fn update_inner(model: Model, msg: Msg) -> #(Model, List(fn() -> Msg)) {
               }
               let merged = version_merger.merge(api_versions, xas_versions)
               #(
-                Model(
+                state.Model(
                   ..model,
-                  view_mode: SelectVersion(
+                  view_mode: state.SelectVersion(
                     name,
                     merged,
                     0,
@@ -410,7 +435,7 @@ fn update_inner(model: Model, msg: Msg) -> #(Model, List(fn() -> Msg)) {
                     xas_data,
                     content_id,
                   ),
-                  status_msg: None,
+                  status_msg: option.None,
                 ),
                 [],
               )
@@ -419,78 +444,101 @@ fn update_inner(model: Model, msg: Msg) -> #(Model, List(fn() -> Msg)) {
         }
         Error(_) ->
           enter_version_mode(
-            Model(
+            state.Model(
               ..model,
-              status_msg: Some("  " <> name <> " — 버전 정보를 가져올 수 없습니다"),
+              status_msg: option.Some("  " <> name <> " — 버전 정보를 가져올 수 없습니다"),
             ),
             queue,
             xas_data,
           )
       }
     }
-
-    ConfirmVersion -> {
+    state.ConfirmVersion -> {
       case model.view_mode {
-        SelectVersion(name, versions, ver_cursor, queue, xas_data, content_id) -> {
+        state.SelectVersion(
+          name,
+          versions,
+          ver_cursor,
+          queue,
+          xas_data,
+          content_id,
+        ) -> {
           case list.drop(versions, ver_cursor) |> list.first {
             Error(_) -> #(model, [])
             Ok(selected) ->
-              case selected.downloadable, selected.s3_object_id {
-                True, Some(s3_id) -> {
-                  let url = "https://files.appstore.mendix.com/" <> s3_id
+              case selected.downloadable, selected.download_url {
+                True, option.Some(url) -> {
                   let model =
-                    Model(..model, view_mode: Working(name <> " 다운로드 중..."))
+                    state.Model(
+                      ..model,
+                      view_mode: state.Working(name <> " 다운로드 중..."),
+                    )
                   let root = model.project_root
                   let version = selected.version_number
                   let react = selected.react_ready
-
                   let cmd = fn() {
                     let result =
                       downloader.download_and_extract(
                         url,
                         name,
                         version,
-                        Some(content_id),
+                        option.Some(content_id),
                         root,
                       )
                     case result {
                       Ok(dl) -> {
-                        let _ =
+                        case
                           config.write_widget(
                             root,
                             name,
                             version,
-                            Some(content_id),
-                            Some(s3_id),
+                            option.Some(content_id),
+                            option.None,
                           )
-                        let type_label = case react {
-                          Some(True) -> " (Pluggable)"
-                          Some(False) -> " (Classic)"
-                          None -> ""
+                        {
+                          Error(reason) ->
+                            state.DownloadDone(
+                              name,
+                              queue,
+                              xas_data,
+                              Error(reason),
+                            )
+                          Ok(Nil) -> {
+                            let type_label = case react {
+                              option.Some(True) -> " (Pluggable)"
+                              option.Some(False) -> " (Classic)"
+                              option.None -> ""
+                            }
+                            state.DownloadDone(
+                              name,
+                              queue,
+                              xas_data,
+                              Ok(
+                                downloader.DownloadResult(
+                                  ..dl,
+                                  s3_id: "✓ "
+                                    <> name
+                                    <> " 다운로드 완료"
+                                    <> type_label,
+                                ),
+                              ),
+                            )
+                          }
                         }
-                        DownloadDone(
-                          name,
-                          queue,
-                          xas_data,
-                          Ok(
-                            downloader.DownloadResult(
-                              ..dl,
-                              s3_id: "✓ " <> name <> " 다운로드 완료" <> type_label,
-                            ),
-                          ),
-                        )
                       }
                       Error(msg) ->
-                        DownloadDone(name, queue, xas_data, Error(msg))
+                        state.DownloadDone(name, queue, xas_data, Error(msg))
                     }
                   }
-
                   #(model, [cmd])
                 }
-                _, _ -> #(
-                  Model(
+                False, option.None
+                | False, option.Some(_)
+                | True, option.None
+                -> #(
+                  state.Model(
                     ..model,
-                    status_msg: Some(
+                    status_msg: option.Some(
                       "  v" <> selected.version_number <> "은 다운로드할 수 없습니다",
                     ),
                   ),
@@ -499,61 +547,75 @@ fn update_inner(model: Model, msg: Msg) -> #(Model, List(fn() -> Msg)) {
               }
           }
         }
-        _ -> #(model, [])
+        state.Browse | state.InitialLoading(_) | state.Working(_) -> #(
+          model,
+          [],
+        )
       }
     }
-
-    DownloadDone(_name, queue, xas_data, result) -> {
+    state.DownloadDone(_name, queue, xas_data, result) -> {
       case result {
         Ok(dl) -> {
-          let model = Model(..model, status_msg: Some("  " <> dl.s3_id))
+          let model =
+            state.Model(..model, status_msg: option.Some("  " <> dl.s3_id))
           enter_version_mode(model, queue, xas_data)
         }
         Error(msg) -> {
-          let model = Model(..model, status_msg: Some("  ✗ 다운로드 실패: " <> msg))
+          let model =
+            state.Model(
+              ..model,
+              status_msg: option.Some("  ✗ 다운로드 실패: " <> error.message(msg)),
+            )
           enter_version_mode(model, queue, xas_data)
         }
       }
     }
-
-    GoBack -> {
+    state.GoBack -> {
       case model.view_mode {
-        SelectVersion(..) -> {
+        state.SelectVersion(..) -> {
           let model =
-            process_mgr.start_loader(
-              Model(..model, view_mode: Browse, status_msg: None),
+            process_manager.start_loader(
+              state.Model(
+                ..model,
+                view_mode: state.Browse,
+                status_msg: option.None,
+              ),
             )
           #(model, [])
         }
-        _ -> #(model, [])
+        state.Browse | state.InitialLoading(_) | state.Working(_) -> #(
+          model,
+          [],
+        )
       }
     }
   }
 }
 
 fn enter_version_mode(
-  model: Model,
+  model: state.Model,
   widgets: List(#(Int, String)),
-  xas_data: Dict(Int, List(XasVersion)),
-) -> #(Model, List(fn() -> Msg)) {
+  xas_data: dict.Dict(Int, List(xas_parser.XasVersion)),
+) -> #(state.Model, List(fn() -> state.Msg)) {
   case widgets {
     [] -> {
       let model =
-        process_mgr.start_loader(
-          Model(..model, view_mode: Browse, selected: []),
+        process_manager.start_loader(
+          state.Model(..model, view_mode: state.Browse, selected: []),
         )
       #(model, [])
     }
     [#(cid, name), ..rest] -> {
       let model_pat = model.pat
-      let model = Model(..model, view_mode: Working(name <> " 버전 조회 중..."))
+      let model =
+        state.Model(..model, view_mode: state.Working(name <> " 버전 조회 중..."))
       let cmd = fn() {
-        ApiVersionsReady(
+        state.ApiVersionsReady(
           name,
           cid,
           rest,
           xas_data,
-          content_api.fetch_versions(model_pat, cid),
+          content_transport.fetch_versions(model_pat, cid),
         )
       }
       #(model, [cmd])

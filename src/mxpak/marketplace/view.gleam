@@ -1,16 +1,153 @@
-// Shore TUI 뷰 — Marketplace 화면 렌더링
+//// Provides view operations for mxpak.
+////
 
 import gleam/int
 import gleam/list
-import gleam/option.{type Option, None, Some}
+import gleam/option
 import gleam/string
-import mxpak/registry/content_api.{type Widget}
-import mxpak/registry/version_merger.{type MergedVersion}
+import mxpak/registry/content_api
+import mxpak/registry/version_merger
 import shore
 import shore/style
 import shore/ui
 
-// ── ANSI 스타일 헬퍼 ──
+/// Represents whether the complete Marketplace result set is loaded.
+pub type LoadState {
+  /// More Marketplace pages may still be loading.
+  Loading
+  /// Every Marketplace page has been loaded.
+  Loaded
+}
+
+/// Renders the Marketplace browse screen.
+pub fn view_browse(
+  items items: List(content_api.Widget),
+  cursor cursor: Int,
+  selected selected: List(Int),
+  page page: Int,
+  total_pages total_pages: String,
+  status_msg status_msg: option.Option(String),
+  load_state load_state: LoadState,
+) -> shore.Node(msg) {
+  let header = "  " <> bold(cyan("── mxpak Marketplace ──"))
+  let widget_rows =
+    list.index_map(items, fn(w, idx) {
+      let is_cursor = idx == cursor
+      let is_selected = list.contains(selected, idx)
+      let marker = case is_cursor, is_selected {
+        True, True -> green(" ▸●")
+        True, False -> cyan(" ▸ ")
+        False, True -> green("  ●")
+        False, False -> "   "
+      }
+      let name = option.unwrap(w.name, "?")
+      let version = case w.latest_version {
+        option.Some(v) -> " v" <> v
+        option.None -> ""
+      }
+      let publisher = case w.publisher {
+        option.Some(p) -> dim(" — " <> p)
+        option.None -> ""
+      }
+      let id_str = dim(" [" <> int.to_string(w.content_id) <> "]")
+      let content = " " <> bold(name) <> version <> publisher <> id_str
+      let line = case is_cursor {
+        True -> marker <> white(content)
+        False -> marker <> content
+      }
+      ui.text(line)
+    })
+  let page_info = dim("  페이지 " <> int.to_string(page) <> "/" <> total_pages)
+  let loading_indicator = case load_state {
+    Loaded -> ""
+    Loading -> dim(" (로드 중...)")
+  }
+  let status_line = case status_msg {
+    option.Some(msg) -> msg
+    option.None -> ""
+  }
+  let help = dim("  Tab:검색  ↑↓:이동  ←→:페이지  Space:선택  Enter:다운로드  Ctrl+X:종료")
+  ui.col(
+    list.flatten([
+      [ui.text(header), ui.br()],
+      widget_rows,
+      [
+        ui.br(),
+        ui.text(page_info <> loading_indicator),
+        ui.text(status_line),
+        ui.br(),
+        ui.text(help),
+      ],
+    ]),
+  )
+}
+
+/// Renders the version selection screen.
+pub fn view_version(
+  name name: String,
+  versions versions: List(version_merger.MergedVersion),
+  ver_cursor ver_cursor: Int,
+  status_msg status_msg: option.Option(String),
+) -> shore.Node(msg) {
+  let header = "  " <> bold(cyan("── " <> name <> " — 버전 선택 ──"))
+  let version_rows =
+    list.index_map(versions, fn(v, idx) {
+      let is_cursor = idx == ver_cursor
+      let marker = case is_cursor {
+        True -> cyan(" ▸ ")
+        False -> "   "
+      }
+      let date = case v.publication_date {
+        option.Some(d) -> string.slice(d, at_index: 0, length: 10)
+        option.None -> "?"
+      }
+      let mendix = case v.min_mendix_version {
+        option.Some(m) -> " (Mendix ≥" <> m <> ")"
+        option.None -> ""
+      }
+      let type_label = case v.downloadable, v.react_ready {
+        False, _ -> red(" [다운로드 불가]")
+        True, option.Some(True) -> green(" [Pluggable]")
+        True, option.Some(False) -> yellow(" [Classic]")
+        True, option.None -> ""
+      }
+      let content =
+        "v" <> v.version_number <> " (" <> date <> ")" <> mendix <> type_label
+      let line = case is_cursor {
+        True -> marker <> white(content)
+        False -> marker <> content
+      }
+      ui.text(line)
+    })
+  let status_line = case status_msg {
+    option.Some(msg) -> msg
+    option.None -> ""
+  }
+  let help = dim("  ↑↓:이동  Enter:다운로드  Esc:목록으로  Ctrl+X:종료")
+  ui.col(
+    list.flatten([
+      [ui.text(header), ui.br()],
+      version_rows,
+      [ui.br(), ui.text(status_line), ui.br(), ui.text(help)],
+    ]),
+  )
+}
+
+/// Renders a loading screen.
+pub fn view_loading(label label: String) -> shore.Node(msg) {
+  ui.col([
+    ui.br(),
+    ui.text_styled(
+      "  -- mxpak Marketplace --",
+      option.Some(style.Cyan),
+      option.None,
+    ),
+    ui.br(),
+    ui.text_styled("  " <> label, option.Some(style.Cyan), option.None),
+    ui.br(),
+    ui.text("  Ctrl+X: 종료"),
+  ])
+}
 
 fn bold(text: String) -> String {
   "\u{001b}[1m" <> text <> "\u{001b}[0m"
@@ -38,146 +175,4 @@ fn red(text: String) -> String {
 
 fn white(text: String) -> String {
   "\u{001b}[37;1m" <> text <> "\u{001b}[0m"
-}
-
-// ── Browse 화면 ──
-
-pub fn view_browse(
-  items: List(Widget),
-  cursor: Int,
-  selected: List(Int),
-  page: Int,
-  total_pages: String,
-  status_msg: Option(String),
-  all_loaded: Bool,
-) -> shore.Node(msg) {
-  let header = "  " <> bold(cyan("── mxpak Marketplace ──"))
-
-  let widget_rows =
-    list.index_map(items, fn(w, idx) {
-      let is_cursor = idx == cursor
-      let is_selected = list.contains(selected, idx)
-      let marker = case is_cursor, is_selected {
-        True, True -> green(" ▸●")
-        True, False -> cyan(" ▸ ")
-        False, True -> green("  ●")
-        False, False -> "   "
-      }
-
-      let name = option.unwrap(w.name, "?")
-      let version = case w.latest_version {
-        Some(v) -> " v" <> v
-        None -> ""
-      }
-      let publisher = case w.publisher {
-        Some(p) -> dim(" — " <> p)
-        None -> ""
-      }
-      let id_str = dim(" [" <> int.to_string(w.content_id) <> "]")
-
-      let content = " " <> bold(name) <> version <> publisher <> id_str
-      let line = case is_cursor {
-        True -> marker <> white(content)
-        False -> marker <> content
-      }
-      ui.text(line)
-    })
-
-  let page_info = dim("  페이지 " <> int.to_string(page) <> "/" <> total_pages)
-  let loading_indicator = case all_loaded {
-    True -> ""
-    False -> dim(" (로드 중...)")
-  }
-
-  let status_line = case status_msg {
-    Some(msg) -> msg
-    None -> ""
-  }
-
-  let help = dim("  Tab:검색  ↑↓:이동  ←→:페이지  Space:선택  Enter:다운로드  Ctrl+X:종료")
-
-  ui.col(
-    list.flatten([
-      [ui.text(header), ui.br()],
-      widget_rows,
-      [
-        ui.br(),
-        ui.text(page_info <> loading_indicator),
-        ui.text(status_line),
-        ui.br(),
-        ui.text(help),
-      ],
-    ]),
-  )
-}
-
-// ── SelectVersion 화면 ──
-
-pub fn view_version(
-  name: String,
-  versions: List(MergedVersion),
-  ver_cursor: Int,
-  status_msg: Option(String),
-) -> shore.Node(msg) {
-  let header = "  " <> bold(cyan("── " <> name <> " — 버전 선택 ──"))
-
-  let version_rows =
-    list.index_map(versions, fn(v, idx) {
-      let is_cursor = idx == ver_cursor
-      let marker = case is_cursor {
-        True -> cyan(" ▸ ")
-        False -> "   "
-      }
-
-      let date = case v.publication_date {
-        Some(d) -> string.slice(d, at_index: 0, length: 10)
-        None -> "?"
-      }
-      let mendix = case v.min_mendix_version {
-        Some(m) -> " (Mendix ≥" <> m <> ")"
-        None -> ""
-      }
-      let type_label = case v.downloadable, v.react_ready {
-        False, _ -> red(" [다운로드 불가]")
-        True, Some(True) -> green(" [Pluggable]")
-        True, Some(False) -> yellow(" [Classic]")
-        True, None -> ""
-      }
-
-      let content =
-        "v" <> v.version_number <> " (" <> date <> ")" <> mendix <> type_label
-      let line = case is_cursor {
-        True -> marker <> white(content)
-        False -> marker <> content
-      }
-      ui.text(line)
-    })
-
-  let status_line = case status_msg {
-    Some(msg) -> msg
-    None -> ""
-  }
-
-  let help = dim("  ↑↓:이동  Enter:다운로드  Esc:목록으로  Ctrl+X:종료")
-
-  ui.col(
-    list.flatten([
-      [ui.text(header), ui.br()],
-      version_rows,
-      [ui.br(), ui.text(status_line), ui.br(), ui.text(help)],
-    ]),
-  )
-}
-
-// ── Loading 화면 ──
-
-pub fn view_loading(label: String) -> shore.Node(msg) {
-  ui.col([
-    ui.br(),
-    ui.text_styled("  -- mxpak Marketplace --", Some(style.Cyan), None),
-    ui.br(),
-    ui.text_styled("  " <> label, Some(style.Cyan), None),
-    ui.br(),
-    ui.text("  Ctrl+X: 종료"),
-  ])
 }

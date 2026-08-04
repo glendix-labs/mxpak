@@ -1,64 +1,75 @@
-// 캐시 통합 인터페이스 — CAS 조회/저장/링크/정리
+//// Provides the public content-addressable cache API for mxpak.
+////
 
 import mxpak/cache/integrity
 import mxpak/cache/store
+import mxpak/error
 
-/// 바이너리 데이터의 SHA-256 해시 계산
-pub fn hash(data: BitArray) -> String {
+/// Computes a content hash for the supplied bytes.
+pub fn hash(data data: BitArray) -> String {
   integrity.sha256(data)
 }
 
-/// 해시 무결성 검증
-pub fn verify(data: BitArray, expected_hash: String) -> Bool {
+/// Checks the supplied bytes against an expected content hash.
+pub fn verify(
+  data data: BitArray,
+  expected_hash expected_hash: String,
+) -> Bool {
   integrity.verify(data, expected_hash)
 }
 
-/// 캐시에 해당 해시가 존재하는지 확인
-pub fn has(hash: String) -> Bool {
+/// Reports whether the requested cache entry exists.
+pub fn has(hash hash: String) -> Result(Bool, error.Error) {
   store.has(hash)
 }
 
-/// 바이너리 + 추출된 엔트리를 캐시에 저장
+/// Stores an MPK and its extracted entries in the content-addressable cache.
 pub fn put(
-  data: BitArray,
-  entries: List(#(String, BitArray)),
-) -> Result(#(String, String), String) {
+  data data: BitArray,
+  entries entries: List(#(String, BitArray)),
+) -> Result(#(String, String), error.Error) {
   store.put(data, entries)
 }
 
-/// 캐시에서 프로젝트로 복사
-pub fn restore(hash: String, target_dir: String) -> Result(Nil, String) {
+/// Restores cached package entries into a project directory.
+pub fn restore(
+  hash hash: String,
+  target_dir target_dir: String,
+) -> Result(Nil, error.Error) {
   store.link_to_project(hash, target_dir)
 }
 
-/// 캐시의 original.mpk를 대상 경로에 하드 링크 (mpk 모드용)
-pub fn restore_mpk(hash: String, target_path: String) -> Result(Nil, String) {
+/// Restores the original MPK from cache.
+pub fn restore_mpk(
+  hash hash: String,
+  target_path target_path: String,
+) -> Result(Nil, error.Error) {
   store.restore_mpk(hash, target_path)
 }
 
-/// 캐시 디렉토리 경로 (해시 기반)
-pub fn path(hash: String) -> String {
+/// Returns the cache path for a content hash.
+pub fn path(hash hash: String) -> String {
   store.cache_path(hash)
 }
 
-/// 단일 파일을 CAS에 저장 (파일명 보존, 워크스페이스 중복제거용)
+/// Stores one file in the content-addressable cache.
 pub fn put_file(
-  data: BitArray,
-  filename: String,
-) -> Result(#(String, String), String) {
+  data data: BitArray,
+  filename filename: String,
+) -> Result(#(String, String), error.Error) {
   store.put_file(data, filename)
 }
 
-/// CAS에서 대상 경로에 하드 링크 복원 (범용)
+/// Restores one cached file to the requested path.
 pub fn restore_file(
-  hash: String,
-  filename: String,
-  target_path: String,
-) -> Result(Nil, String) {
+  hash hash: String,
+  filename filename: String,
+  target_path target_path: String,
+) -> Result(Nil, error.Error) {
   store.restore_file(hash, filename, target_path)
 }
 
-/// 전체 캐시 삭제
-pub fn clean() -> Result(Nil, String) {
+/// Removes all cached package data.
+pub fn clean() -> Result(Nil, error.Error) {
   store.clean()
 }

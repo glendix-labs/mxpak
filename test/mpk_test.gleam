@@ -1,46 +1,77 @@
-import gleam/option.{None, Some}
+//// Tests mpk behavior for mxpak.
+////
+
+import gleam/list
+import gleam/option
+import gleam/string
+import gleeunit/should
+import mxpak/error
+import mxpak/mpk/metadata
 import mxpak/mpk/xml
 import mxpak/mpk/zip
+import mxpak/widget
+import simplifile
 
-// === ZIP 테스트 ===
-
-/// 유효하지 않은 ZIP 바이너리 처리
-pub fn zip_extract_invalid_binary_test() {
-  let assert Error(_) = zip.extract(<<"not a zip":utf8>>)
+/// Verifies zip extract invalid binary behavior.
+pub fn zip_extract_invalid_binary_test() -> Nil {
+  zip.extract(<<"not a zip":utf8>>)
+  |> should.be_error
+  |> error.message
+  |> string.is_empty
+  |> should.be_false
+  Nil
 }
 
-/// 빈 ZIP에서 특정 파일 추출 실패
-pub fn zip_extract_file_from_invalid_test() {
-  let assert Error(_) = zip.extract_file(<<"bad":utf8>>, "foo.txt")
+/// Verifies zip extract file from invalid behavior.
+pub fn zip_extract_file_from_invalid_test() -> Nil {
+  zip.extract_file(<<"bad":utf8>>, "foo.txt")
+  |> should.be_error
+  Nil
 }
 
-// === XML 파싱 테스트 ===
-
-pub fn parse_widget_name_test() {
+/// Verifies parse widget name behavior.
+pub fn parse_widget_name_test() -> Nil {
   let xml = "<widget><name>DataGrid</name></widget>"
-  let assert Ok("DataGrid") = xml.parse_widget_name(xml)
+  xml.parse_widget_name(xml)
+  |> should.equal(Ok("DataGrid"))
+  Nil
 }
 
-pub fn parse_widget_name_missing_test() {
-  let assert Error(Nil) = xml.parse_widget_name("<widget></widget>")
+/// Verifies parse widget name missing behavior.
+pub fn parse_widget_name_missing_test() -> Nil {
+  xml.parse_widget_name("<widget></widget>")
+  |> should.be_error
+  Nil
 }
 
-pub fn extract_widget_file_paths_test() {
+/// Verifies extract widget file paths behavior.
+pub fn extract_widget_file_paths_test() -> Nil {
   let package_xml =
     "<package><clientModule><widgetFile path=\"com/example/Widget.mjs\"/><widgetFile path=\"com/example/Other.mjs\"/></clientModule></package>"
-  let paths = xml.extract_widget_file_paths(package_xml)
-  let assert True = paths == ["com/example/Widget.mjs", "com/example/Other.mjs"]
+  let paths =
+    xml.extract_widget_file_paths(package_xml)
+    |> should.be_ok
+  { paths == ["com/example/Widget.mjs", "com/example/Other.mjs"] }
+  |> should.be_true
+  Nil
 }
 
-pub fn extract_widget_file_paths_empty_test() {
-  let assert [] = xml.extract_widget_file_paths("<package></package>")
+/// Verifies extract widget file paths empty behavior.
+pub fn extract_widget_file_paths_empty_test() -> Nil {
+  xml.extract_widget_file_paths("<package></package>")
+  |> should.be_ok
+  |> should.equal([])
+  Nil
 }
 
-pub fn parse_properties_test() {
+/// Verifies parse properties behavior.
+pub fn parse_properties_test() -> Nil {
   let widget_xml =
     "<widget><property key=\"dataSource\" required=\"true\"/><property key=\"label\" required=\"false\">desc</property></widget>"
-  let props = xml.parse_properties(widget_xml)
-  let assert True = {
+  let props =
+    xml.parse_properties(widget_xml)
+    |> should.be_ok
+  {
     case props {
       [first, second] -> {
         first.key == "dataSource"
@@ -51,73 +82,112 @@ pub fn parse_properties_test() {
       _ -> False
     }
   }
-}
-
-pub fn parse_properties_no_required_test() {
-  let widget_xml = "<widget><property key=\"value\"/></widget>"
-  let props = xml.parse_properties(widget_xml)
-  let assert [prop] = props
-  let assert True = prop.key == "value"
-  let assert True = prop.required == False
-}
-
-// === 네이밍 유틸 테스트 ===
-
-pub fn to_safe_identifier_test() {
-  let assert True = xml.to_safe_identifier("Progress Bar") == "ProgressBar"
-  let assert True = xml.to_safe_identifier("Data-Grid") == "DataGrid"
-  let assert True = xml.to_safe_identifier("Normal") == "Normal"
-}
-
-pub fn to_module_file_name_test() {
-  let assert True = xml.to_module_file_name("Progress Bar") == "progress_bar"
-  let assert True = xml.to_module_file_name("DataGrid") == "data_grid"
-}
-
-pub fn to_snake_case_test() {
-  let assert True = xml.to_snake_case("camelCase") == "camel_case"
-  let assert True = xml.to_snake_case("HTTPClient") == "http_client"
-  let assert True = xml.to_snake_case("simpleTest") == "simple_test"
-}
-
-pub fn to_gleam_var_test() {
-  let assert True = xml.to_gleam_var("dataSource") == "data_source"
-  let assert True = xml.to_gleam_var("type") == "type_"
-  let assert True = xml.to_gleam_var("import") == "import_"
-  let assert True = xml.to_gleam_var("normalName") == "normal_name"
-}
-
-// === metadata 테스트 ===
-
-import mxpak/mpk/metadata
-import simplifile
-
-pub fn metadata_write_read_roundtrip_test() {
-  let dir = "build/test_tmp/meta_rt"
-  let _ = simplifile.create_directory_all(dir)
-  let path = dir <> "/meta.toml"
-
-  let assert Ok(_) = metadata.write(path, "2.0.0", Some(42), False)
-  let assert Ok(config) = metadata.read(path)
-  let assert True = config.version == "2.0.0"
-  let assert Some(42) = config.id
-  let assert None = config.classic
-
-  let _ = simplifile.delete(dir)
+  |> should.be_true
   Nil
 }
 
-pub fn metadata_classic_roundtrip_test() {
-  let dir = "build/test_tmp/meta_rt2"
-  let _ = simplifile.create_directory_all(dir)
+/// Verifies parse properties no required behavior.
+pub fn parse_properties_no_required_test() -> Nil {
+  let widget_xml = "<widget><property key=\"value\"/></widget>"
+  let props =
+    xml.parse_properties(widget_xml)
+    |> should.be_ok
+  list.length(props)
+  |> should.equal(1)
+  let prop =
+    list.first(props)
+    |> should.be_ok
+  { prop.key == "value" }
+  |> should.be_true
+  prop.required
+  |> should.be_false
+  Nil
+}
+
+/// Verifies to safe identifier behavior.
+pub fn to_safe_identifier_test() -> Nil {
+  { xml.to_safe_identifier("Progress Bar") == "ProgressBar" }
+  |> should.be_true
+  { xml.to_safe_identifier("Data-Grid") == "DataGrid" }
+  |> should.be_true
+  { xml.to_safe_identifier("Normal") == "Normal" }
+  |> should.be_true
+  Nil
+}
+
+/// Verifies to module file name behavior.
+pub fn to_module_file_name_test() -> Nil {
+  { xml.to_module_file_name("Progress Bar") == "progress_bar" }
+  |> should.be_true
+  { xml.to_module_file_name("DataGrid") == "data_grid" }
+  |> should.be_true
+  Nil
+}
+
+/// Verifies to snake case behavior.
+pub fn to_snake_case_test() -> Nil {
+  { xml.to_snake_case("camelCase") == "camel_case" }
+  |> should.be_true
+  { xml.to_snake_case("HTTPClient") == "http_client" }
+  |> should.be_true
+  { xml.to_snake_case("simpleTest") == "simple_test" }
+  |> should.be_true
+  Nil
+}
+
+/// Verifies to gleam var behavior.
+pub fn to_gleam_var_test() -> Nil {
+  { xml.to_gleam_var("dataSource") == "data_source" }
+  |> should.be_true
+  { xml.to_gleam_var("type") == "type_" }
+  |> should.be_true
+  { xml.to_gleam_var("import") == "import_" }
+  |> should.be_true
+  { xml.to_gleam_var("normalName") == "normal_name" }
+  |> should.be_true
+  Nil
+}
+
+/// Verifies metadata write read roundtrip behavior.
+pub fn metadata_write_read_roundtrip_test() -> Nil {
+  let dir = "build/test_tmp/meta_rt"
+  simplifile.create_directory_all(dir)
+  |> should.be_ok
   let path = dir <> "/meta.toml"
+  metadata.write(path, "2.0.0", option.Some(42), widget.Pluggable)
+  |> should.be_ok
+  let config =
+    metadata.read(path)
+    |> should.be_ok
+  { config.version == "2.0.0" }
+  |> should.be_true
+  config.id
+  |> should.equal(option.Some(42))
+  config.kind
+  |> should.equal(widget.Pluggable)
+  simplifile.delete(dir)
+  |> should.be_ok
+  Nil
+}
 
-  let assert Ok(_) = metadata.write(path, "1.0.0", None, True)
-  let assert Ok(config) = metadata.read(path)
-  let assert True = config.version == "1.0.0"
-  let assert None = config.id
-  let assert Some(True) = config.classic
-
-  let _ = simplifile.delete(dir)
+/// Verifies metadata classic roundtrip behavior.
+pub fn metadata_classic_roundtrip_test() -> Nil {
+  let dir = "build/test_tmp/meta_rt2"
+  simplifile.create_directory_all(dir)
+  |> should.be_ok
+  let path = dir <> "/meta.toml"
+  metadata.write(path, "1.0.0", option.None, widget.Classic)
+  |> should.be_ok
+  let config =
+    metadata.read(path)
+    |> should.be_ok
+  { config.version == "1.0.0" }
+  |> should.be_true
+  config.id
+  |> should.be_none
+  config.kind
+  |> should.equal(widget.Classic)
+  simplifile.delete(dir)
+  |> should.be_ok
   Nil
 }

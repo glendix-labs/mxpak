@@ -1,19 +1,21 @@
-// SHA-256 무결성 검증 — Erlang :crypto 래핑
+//// Provides integrity operations for mxpak.
+////
 
 import gleam/crypto
 
-/// 바이너리 데이터의 SHA-256 해시 계산 (hex string)
-pub fn sha256(data: BitArray) -> String {
+/// Computes the SHA-256 digest of the supplied bytes.
+pub fn sha256(data data: BitArray) -> String {
   crypto.hash(crypto.Sha256, data)
   |> hex_encode
 }
 
-/// 해시값 비교 (constant-time)
-pub fn verify(data: BitArray, expected_hash: String) -> Bool {
+/// Checks the supplied bytes against an expected content hash.
+pub fn verify(
+  data data: BitArray,
+  expected_hash expected_hash: String,
+) -> Bool {
   sha256(data) == expected_hash
 }
-
-// ── 내부 헬퍼 ──
 
 fn hex_encode(bytes: BitArray) -> String {
   do_hex_encode(bytes, "")

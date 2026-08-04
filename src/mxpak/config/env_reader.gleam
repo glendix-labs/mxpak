@@ -1,24 +1,36 @@
-// .env 파일 + 환경변수에서 설정 값 읽기
-// 우선순위: 환경변수 > .env 파일
+//// Provides env reader operations for mxpak.
+////
 
 import envoy
 import gleam/list
-import gleam/option.{type Option, None, Some}
+import gleam/option
 import gleam/string
+import mxpak/error
 import simplifile
 
-/// 환경변수 → .env 파일 순으로 값 조회
-pub fn get(key: String, project_root: String) -> Option(String) {
+/// Reads a value from the project environment file.
+pub fn get(
+  key key: String,
+  project_root project_root: String,
+) -> Result(option.Option(String), error.Error) {
   case envoy.get(key) {
-    Ok(val) -> Some(val)
+    Ok(val) -> Ok(option.Some(val))
     Error(_) -> read_from_dotenv(key, project_root)
   }
 }
 
-/// .env 파일에서 key=value 형태로 값 읽기
-fn read_from_dotenv(key: String, project_root: String) -> Option(String) {
-  case simplifile.read(project_root <> "/.env") {
-    Error(_) -> None
+/// Reads the from dotenv.
+fn read_from_dotenv(
+  key: String,
+  project_root: String,
+) -> Result(option.Option(String), error.Error) {
+  let path = project_root <> "/.env"
+  case simplifile.read(path) {
+    Error(simplifile.Enoent) -> Ok(option.None)
+    Error(reason) ->
+      Error(error.configuration(
+        "환경 파일 읽기 실패: " <> path <> ": " <> string.inspect(reason),
+      ))
     Ok(content) ->
       string.split(content, "\n")
       |> list.find_map(fn(line) {
@@ -41,6 +53,7 @@ fn read_from_dotenv(key: String, project_root: String) -> Option(String) {
         }
       })
       |> option.from_result
+      |> Ok
   }
 }
 

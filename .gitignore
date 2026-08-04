@@ -8,6 +8,9 @@ erl_crash.dump
 /mxpak
 /mxp
 
+# Project-local generated dependency lock
+/mxpak.lock
+
 # Node
 node_modules/
 
@@ -23,3 +26,8 @@ Desktop.ini
 .idea/
 .vscode/
 .claude/
+
+# Glendix Family workspace links
+/.agents/
+/.codex/
+/AGENTS.md

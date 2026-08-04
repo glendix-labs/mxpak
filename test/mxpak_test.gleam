@@ -1,78 +1,130 @@
+//// Tests mxpak behavior for mxpak.
+////
+
 import gleeunit
+import gleeunit/should
 import mxpak/cli
 
+/// Runs this module's test suite.
 pub fn main() -> Nil {
   gleeunit.main()
 }
 
-// === CLI 인자 파싱 테스트 ===
-
-pub fn parse_empty_test() {
-  let assert cli.Help = cli.parse([])
+/// Verifies parse empty behavior.
+pub fn parse_empty_test() -> Nil {
+  cli.parse([])
+  |> should.equal(cli.Help)
+  Nil
 }
 
-pub fn parse_version_test() {
-  let assert cli.Version = cli.parse(["--version"])
+/// Verifies parse version behavior.
+pub fn parse_version_test() -> Nil {
+  cli.parse(["--version"])
+  |> should.equal(cli.Version)
+  Nil
 }
 
-pub fn parse_version_short_test() {
-  let assert cli.Version = cli.parse(["-v"])
+/// Verifies parse version short behavior.
+pub fn parse_version_short_test() -> Nil {
+  cli.parse(["-v"])
+  |> should.equal(cli.Version)
+  Nil
 }
 
-pub fn parse_help_test() {
-  let assert cli.Help = cli.parse(["--help"])
+/// Verifies parse help behavior.
+pub fn parse_help_test() -> Nil {
+  cli.parse(["--help"])
+  |> should.equal(cli.Help)
+  Nil
 }
 
-pub fn parse_install_default_test() {
-  let assert cli.Install(".") = cli.parse(["install"])
+/// Verifies parse install default behavior.
+pub fn parse_install_default_test() -> Nil {
+  cli.parse(["install"])
+  |> should.equal(cli.Install("."))
+  Nil
 }
 
-pub fn parse_install_with_root_test() {
-  let assert cli.Install("/some/path") = cli.parse(["install", "/some/path"])
+/// Verifies parse install with root behavior.
+pub fn parse_install_with_root_test() -> Nil {
+  cli.parse(["install", "/some/path"])
+  |> should.equal(cli.Install("/some/path"))
+  Nil
 }
 
-pub fn parse_marketplace_default_test() {
-  let assert cli.Marketplace(".") = cli.parse(["marketplace"])
+/// Verifies parse marketplace default behavior.
+pub fn parse_marketplace_default_test() -> Nil {
+  cli.parse(["marketplace"])
+  |> should.equal(cli.Marketplace("."))
+  Nil
 }
 
-pub fn parse_add_name_only_test() {
-  let assert cli.Add("DataGrid", cli.VersionLatest) =
-    cli.parse(["add", "DataGrid"])
+/// Verifies parse add name only behavior.
+pub fn parse_add_name_only_test() -> Nil {
+  cli.parse(["add", "DataGrid"])
+  |> should.equal(cli.Add("DataGrid", cli.VersionLatest))
+  Nil
 }
 
-pub fn parse_add_with_version_test() {
-  let assert cli.Add("DataGrid", cli.VersionSpecified("2.0.0")) =
-    cli.parse(["add", "DataGrid", "--version", "2.0.0"])
+/// Verifies parse add with version behavior.
+pub fn parse_add_with_version_test() -> Nil {
+  cli.parse(["add", "DataGrid", "--version", "2.0.0"])
+  |> should.equal(cli.Add("DataGrid", cli.VersionSpecified("2.0.0")))
+  Nil
 }
 
-pub fn parse_remove_test() {
-  let assert cli.Remove("DataGrid") = cli.parse(["remove", "DataGrid"])
+/// Verifies parse remove behavior.
+pub fn parse_remove_test() -> Nil {
+  cli.parse(["remove", "DataGrid"])
+  |> should.equal(cli.Remove("DataGrid"))
+  Nil
 }
 
-pub fn parse_update_all_test() {
-  let assert cli.Update("") = cli.parse(["update"])
+/// Verifies parse update all behavior.
+pub fn parse_update_all_test() -> Nil {
+  cli.parse(["update"])
+  |> should.equal(cli.Update(""))
+  Nil
 }
 
-pub fn parse_update_specific_test() {
-  let assert cli.Update("DataGrid") = cli.parse(["update", "DataGrid"])
+/// Verifies parse update specific behavior.
+pub fn parse_update_specific_test() -> Nil {
+  cli.parse(["update", "DataGrid"])
+  |> should.equal(cli.Update("DataGrid"))
+  Nil
 }
 
-pub fn parse_cache_clean_test() {
-  let assert cli.CacheClean = cli.parse(["cache", "clean"])
+/// Verifies parse cache clean behavior.
+pub fn parse_cache_clean_test() -> Nil {
+  cli.parse(["cache", "clean"])
+  |> should.equal(cli.CacheClean)
+  Nil
 }
 
-pub fn parse_unknown_test() {
-  let assert cli.Unknown("foo") = cli.parse(["foo"])
+/// Verifies parse unknown behavior.
+pub fn parse_unknown_test() -> Nil {
+  cli.parse(["foo"])
+  |> should.equal(cli.Unknown("foo"))
+  Nil
 }
 
-pub fn parse_audit_default_test() {
-  let assert cli.Audit(".") = cli.parse(["audit"])
+/// Verifies parse audit default behavior.
+pub fn parse_audit_default_test() -> Nil {
+  cli.parse(["audit"])
+  |> should.equal(cli.Audit("."))
+  Nil
 }
 
-pub fn parse_list_default_test() {
-  let assert cli.List(".") = cli.parse(["list"])
+/// Verifies parse list default behavior.
+pub fn parse_list_default_test() -> Nil {
+  cli.parse(["list"])
+  |> should.equal(cli.List("."))
+  Nil
 }
 
-pub fn parse_info_test() {
-  let assert cli.Info("Charts") = cli.parse(["info", "Charts"])
+/// Verifies parse info behavior.
+pub fn parse_info_test() -> Nil {
+  cli.parse(["info", "Charts"])
+  |> should.equal(cli.Info("Charts"))
+  Nil
 }

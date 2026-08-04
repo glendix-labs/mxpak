@@ -1,0 +1,38 @@
+name: Mxpak gates
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package-gates:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out mxpak
+        uses: actions/checkout@v4
+        with:
+          path: mxpak
+      - name: Check out local Chrobot Extra dependency
+        uses: actions/checkout@v4
+        with:
+          repository: glendix-labs/chrobot
+          path: chrobot
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "29"
+          gleam-version: "1.17.0"
+          rebar3-version: "3"
+      - name: Validate mxpak
+        working-directory: mxpak
+        run: |
+          gleam deps download
+          gleam format --check
+          gleam check
+          gleam build --warnings-as-errors
+          gleam docs build
+          gleam test

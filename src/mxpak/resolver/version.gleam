@@ -1,46 +1,67 @@
-// Semantic Versioning 파싱 + 비교
+//// Provides version operations for mxpak.
+////
 
 import gleam/int
 import gleam/list
-import gleam/order.{type Order, Eq, Gt, Lt}
+import gleam/order
 import gleam/result
 import gleam/string
+import mxpak/error
 
+/// A typed `Version` value used by the version capability.
 pub type Version {
+  /// The `Version` variant.
   Version(major: Int, minor: Int, patch: Int)
 }
 
-/// 문자열 → Version 파싱
-pub fn parse(str: String) -> Result(Version, Nil) {
+/// Parses the supplied value.
+pub fn parse(str str: String) -> Result(Version, error.MissingValue) {
   let clean = string.trim(str)
   let parts = string.split(clean, ".")
   case parts {
     [maj, min, pat] -> {
-      use major <- result.try(int.parse(maj))
-      use minor <- result.try(int.parse(min))
-      // patch에 pre-release 접미사가 있을 수 있음 (예: "1-beta")
+      use major <- result.try(
+        int.parse(maj)
+        |> result.replace_error(error.MissingValue),
+      )
+      use minor <- result.try(
+        int.parse(min)
+        |> result.replace_error(error.MissingValue),
+      )
       let pat_str = case string.split_once(pat, "-") {
         Ok(#(p, _)) -> p
         Error(_) -> pat
       }
-      use patch <- result.try(int.parse(pat_str))
+      use patch <- result.try(
+        int.parse(pat_str)
+        |> result.replace_error(error.MissingValue),
+      )
       Ok(Version(major, minor, patch))
     }
     [maj, min] -> {
-      use major <- result.try(int.parse(maj))
-      use minor <- result.try(int.parse(min))
+      use major <- result.try(
+        int.parse(maj)
+        |> result.replace_error(error.MissingValue),
+      )
+      use minor <- result.try(
+        int.parse(min)
+        |> result.replace_error(error.MissingValue),
+      )
       Ok(Version(major, minor, 0))
     }
     [maj] -> {
-      use major <- result.try(int.parse(maj))
+      use major <- result.try(
+        int.parse(maj)
+        |> result.replace_error(error.MissingValue),
+      )
       Ok(Version(major, 0, 0))
     }
-    _ -> Error(Nil)
+    _ -> Error(error.MissingValue)
   }
 }
 
-/// Version → 문자열
-pub fn to_string(v: Version) -> String {
+/// Serializes a semantic version.
+pub fn to_string(v v: Version) -> String {
   int.to_string(v.major)
   <> "."
   <> int.to_string(v.minor)
@@ -48,12 +69,12 @@ pub fn to_string(v: Version) -> String {
   <> int.to_string(v.patch)
 }
 
-/// 두 버전 비교
-pub fn compare(a: Version, b: Version) -> Order {
+/// Compares two semantic versions.
+pub fn compare(a a: Version, b b: Version) -> order.Order {
   case int.compare(a.major, b.major) {
-    Eq ->
+    order.Eq ->
       case int.compare(a.minor, b.minor) {
-        Eq -> int.compare(a.patch, b.patch)
+        order.Eq -> int.compare(a.patch, b.patch)
         other -> other
       }
     other -> other
@@ -61,46 +82,48 @@ pub fn compare(a: Version, b: Version) -> Order {
 }
 
 /// a >= b
-pub fn gte(a: Version, b: Version) -> Bool {
+pub fn gte(a a: Version, b b: Version) -> Bool {
   case compare(a, b) {
-    Gt | Eq -> True
-    Lt -> False
+    order.Gt | order.Eq -> True
+    order.Lt -> False
   }
 }
 
 /// a > b
-pub fn gt(a: Version, b: Version) -> Bool {
-  compare(a, b) == Gt
+pub fn gt(a a: Version, b b: Version) -> Bool {
+  compare(a, b) == order.Gt
 }
 
 /// a <= b
-pub fn lte(a: Version, b: Version) -> Bool {
+pub fn lte(a a: Version, b b: Version) -> Bool {
   case compare(a, b) {
-    Lt | Eq -> True
-    Gt -> False
+    order.Lt | order.Eq -> True
+    order.Gt -> False
   }
 }
 
 /// a < b
-pub fn lt(a: Version, b: Version) -> Bool {
-  compare(a, b) == Lt
+pub fn lt(a a: Version, b b: Version) -> Bool {
+  compare(a, b) == order.Lt
 }
 
 /// a == b
-pub fn eq(a: Version, b: Version) -> Bool {
-  compare(a, b) == Eq
+pub fn eq(a a: Version, b b: Version) -> Bool {
+  compare(a, b) == order.Eq
 }
 
-/// 버전 목록에서 최신 버전 선택
-pub fn latest(versions: List(Version)) -> Result(Version, Nil) {
+/// Returns the newest semantic version.
+pub fn latest(
+  versions versions: List(Version),
+) -> Result(Version, error.MissingValue) {
   case versions {
-    [] -> Error(Nil)
+    [] -> Error(error.MissingValue)
     [first, ..rest] ->
       Ok(
         list.fold(rest, first, fn(best, v) {
           case compare(v, best) {
-            Gt -> v
-            _ -> best
+            order.Gt -> v
+            order.Lt | order.Eq -> best
           }
         }),
       )

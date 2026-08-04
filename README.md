@@ -1,3 +1,5 @@
+**English** | [Korean](README.ko.md) | [Japanese](README.ja.md)
+
 # mxpak
 
 Mendix package manager and workspace deduplicator with global caching and hard links.
@@ -26,13 +28,13 @@ If the cache and project are on different drives (where hard links don't work), 
 **macOS / Linux**
 
 ```sh
-curl -fsSL https://github.com/GG-O-BP/mxpak/releases/latest/download/install.sh | sh
+curl -fsSL https://github.com/glendix-labs/mxpak/releases/latest/download/install.sh | sh
 ```
 
 **Windows (PowerShell)**
 
 ```powershell
-iwr -useb https://github.com/GG-O-BP/mxpak/releases/latest/download/install.ps1 | iex
+iwr -useb https://github.com/glendix-labs/mxpak/releases/latest/download/install.ps1 | iex
 ```
 
 Both scripts place the `mxp` escript at `~/.mxpak/bin/` (macOS/Linux) or `%USERPROFILE%\.mxpak\bin\` (Windows).
@@ -60,7 +62,7 @@ mxp --version
 ### From source
 
 ```sh
-git clone https://github.com/GG-O-BP/mxpak.git
+git clone https://github.com/glendix-labs/mxpak.git
 cd mxpak
 gleam run -m gleescript    # produces ./mxpak — rename to mxp and place on PATH
 ```
@@ -88,18 +90,18 @@ mxp <command> [options]
 
 ## Configuration
 
-Add a `[tools.mendraw]` section to your project's TOML config:
+Add a `[tools.mxpak]` section to your project's TOML config:
 
 ```toml
-[tools.mendraw]
+[tools.mxpak]
 mode = "mpk"
 widgets_dir = "widgets"
 
-[tools.mendraw.widgets.Badge]
+[tools.mxpak.widgets.Badge]
 version = "3.2.2"
 id = 50325
 
-[tools.mendraw.widgets."com.mendix.widget.web.Datagrid"]
+[tools.mxpak.widgets."com.mendix.widget.web.Datagrid"]
 version = "2.22.3"
 id = 116540
 ```

@@ -1,78 +1,104 @@
-// Marketplace TUI 상태 타입 정의
+//// Provides state operations for mxpak.
+////
 
-import gleam/dict.{type Dict}
-import gleam/erlang/process.{type Subject}
-import gleam/option.{type Option}
+import gleam/dict
+import gleam/erlang/process
+import gleam/option
 import mxpak/downloader
-import mxpak/marketplace/loader.{type LoaderHandle}
-import mxpak/registry/content_api.{type ContentApiVersion, type Widget}
-import mxpak/registry/version_merger.{type MergedVersion}
-import mxpak/registry/xas_parser.{type XasVersion}
+import mxpak/error
+import mxpak/marketplace/loader
+import mxpak/registry/content_api
+import mxpak/registry/version_merger
+import mxpak/registry/xas_parser
 
-pub const display_size = 10
-
+/// A typed `ViewMode` value used by the state capability.
 pub type ViewMode {
+  /// The `Browse` variant.
   Browse
+  /// The `SelectVersion` variant.
   SelectVersion(
     name: String,
-    versions: List(MergedVersion),
+    versions: List(version_merger.MergedVersion),
     ver_cursor: Int,
     queue: List(#(Int, String)),
-    xas_data: Dict(Int, List(XasVersion)),
+    xas_data: dict.Dict(Int, List(xas_parser.XasVersion)),
     content_id: Int,
   )
+  /// The `InitialLoading` variant.
   InitialLoading(label: String)
+  /// The `Working` variant.
   Working(label: String)
 }
 
+/// A typed `Model` value used by the state capability.
 pub type Model {
+  /// The `Model` variant.
   Model(
     pat: String,
     project_root: String,
-    all_widgets: List(Widget),
-    filtered: Option(List(Widget)),
+    all_widgets: List(content_api.Widget),
+    filtered: option.Option(List(content_api.Widget)),
     page_index: Int,
     cursor: Int,
     selected: List(Int),
     all_loaded: Bool,
-    loader: Option(LoaderHandle),
+    loader: option.Option(loader.LoaderHandle),
     offset: Int,
     search_query: String,
     view_mode: ViewMode,
-    status_msg: Option(String),
-    shore_subject: Option(Subject(Msg)),
-    exit_subject: Option(Subject(Nil)),
+    status_msg: option.Option(String),
+    shore_subject: option.Option(process.Subject(Msg)),
+    exit_subject: option.Option(process.Subject(Nil)),
   )
 }
 
+/// A typed `Msg` value used by the state capability.
 pub type Msg {
+  /// The `MoveCursor` variant.
   MoveCursor(Int)
+  /// The `ChangePage` variant.
   ChangePage(Int)
+  /// The `GoHome` variant.
   GoHome
+  /// The `GoEnd` variant.
   GoEnd
+  /// The `ToggleSelection` variant.
   ToggleSelection
+  /// The `SearchChanged` variant.
   SearchChanged(String)
+  /// The `StartDownload` variant.
   StartDownload
+  /// The `ConfirmVersion` variant.
   ConfirmVersion
+  /// The `GoBack` variant.
   GoBack
+  /// The `Quit` variant.
   Quit
+  /// The `LoaderUpdated` variant.
   LoaderUpdated(loader.LoaderMsg)
-  SessionReady(Result(Nil, String))
+  /// The `SessionReady` variant.
+  SessionReady(Result(Nil, error.Error))
+  /// The `VersionInfoReady` variant.
   VersionInfoReady(
     widgets: List(#(Int, String)),
-    result: Result(Dict(Int, List(XasVersion)), String),
+    result: Result(dict.Dict(Int, List(xas_parser.XasVersion)), error.Error),
   )
+  /// The `ApiVersionsReady` variant.
   ApiVersionsReady(
     name: String,
     content_id: Int,
     queue: List(#(Int, String)),
-    xas_data: Dict(Int, List(XasVersion)),
-    result: Result(List(ContentApiVersion), String),
+    xas_data: dict.Dict(Int, List(xas_parser.XasVersion)),
+    result: Result(List(content_api.ContentApiVersion), error.Error),
   )
+  /// The `DownloadDone` variant.
   DownloadDone(
     name: String,
     queue: List(#(Int, String)),
-    xas_data: Dict(Int, List(XasVersion)),
-    result: Result(downloader.DownloadResult, String),
+    xas_data: dict.Dict(Int, List(xas_parser.XasVersion)),
+    result: Result(downloader.DownloadResult, error.Error),
   )
 }
+
+/// The `display_size` constant used by the state capability.
+pub const display_size = 10

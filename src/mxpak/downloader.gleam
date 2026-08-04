@@ -1,219 +1,219 @@
-// 위젯 다운로드 + ZIP 추출 + CAS 캐시 연동
+//// Downloads, extracts, and restores Mendix widget packages.
+////
 
 import gleam/bit_array
 import gleam/http/request
 import gleam/httpc
 import gleam/io
 import gleam/list
-import gleam/option.{type Option}
+import gleam/option
 import gleam/result
 import gleam/string
 import mxpak/cache
 import mxpak/cache/integrity
 import mxpak/config/toml_writer
+import mxpak/error
 import mxpak/mpk/xml
 import mxpak/mpk/zip
+import mxpak/widget
+import simplifile
 
-// ── 타입 ──
-
+/// A typed `DownloadResult` value used by the downloader capability.
 pub type DownloadResult {
+  /// The `DownloadResult` variant.
   DownloadResult(
     name: String,
     version: String,
-    content_id: Option(Int),
+    content_id: option.Option(Int),
     s3_id: String,
     hash: String,
-    classic: Bool,
+    kind: widget.Kind,
   )
 }
 
-// ── 다운로드 + 추출 ──
-
-/// URL에서 .mpk를 다운로드하고 CAS 캐시 → 프로젝트에 추출
+/// Downloads a widget package and writes its extracted assets.
 pub fn download_and_extract(
-  url: String,
-  name: String,
-  version: String,
-  content_id: Option(Int),
-  project_root: String,
-) -> Result(DownloadResult, String) {
+  url url: String,
+  name name: String,
+  version version: String,
+  content_id content_id: option.Option(Int),
+  project_root project_root: String,
+) -> Result(DownloadResult, error.Error) {
   let cache_dir = project_root <> "/build/widgets/" <> name
-
-  // HTTP 다운로드
   use zip_data <- result.try(download_binary(url))
   let hash = integrity.sha256(zip_data)
-
-  // CAS 캐시 히트 체크
-  case cache.has(hash) {
+  use cached <- result.try(cache.has(hash))
+  case cached {
     True -> {
       io.println_error(name <> " v" <> version <> " — 캐시 히트")
       use _ <- result.try(cache.restore(hash, cache_dir))
-      let classic = !has_mjs_in_dir(cache_dir)
-      Ok(DownloadResult(name, version, content_id, url, hash, classic))
+      use has_mjs <- result.try(has_mjs_in_dir(cache_dir))
+      let kind = case has_mjs {
+        True -> widget.Pluggable
+        False -> widget.Classic
+      }
+      Ok(DownloadResult(name, version, content_id, url, hash, kind))
     }
     False -> {
-      // ZIP 추출
       use entries <- result.try(
         zip.extract(zip_data)
-        |> result.map_error(fn(e) { name <> " — 추출 실패: " <> e }),
+        |> result.map_error(fn(e) {
+          error.download(name <> " — 추출 실패: " <> error.message(e))
+        }),
       )
-
       let has_mjs =
         list.any(entries, fn(e) { string.ends_with(e.name, ".mjs") })
-      let classic = !has_mjs
-
-      // 저장할 파일 목록 구성
-      let save_entries = build_save_entries(entries, classic)
-
-      // CAS 캐시에 저장
+      let kind = case has_mjs {
+        True -> widget.Pluggable
+        False -> widget.Classic
+      }
+      use save_entries <- result.try(build_save_entries(entries, kind))
       use _ <- result.try(cache.put(zip_data, save_entries))
-
-      // 프로젝트 디렉토리에 파일 쓰기
       use _ <- result.try(write_to_project(save_entries, cache_dir))
-
-      // meta.toml 기록
       use _ <- result.try(toml_writer.write_meta_toml(
         cache_dir <> "/meta.toml",
         version,
         content_id,
-        classic,
+        kind,
       ))
-
       io.println_error(
         name <> " v" <> version <> " — 다운로드 완료 [" <> short_hash(hash) <> "]",
       )
-      Ok(DownloadResult(name, version, content_id, url, hash, classic))
+      Ok(DownloadResult(name, version, content_id, url, hash, kind))
     }
   }
 }
 
-/// MPK 모드: .mpk 다운로드 → CAS 캐시 → 대상 경로에 하드 링크
+/// Downloads a widget package as an MPK file.
 pub fn download_mpk(
-  url: String,
-  name: String,
-  version: String,
-  content_id: Option(Int),
-  target_path: String,
-) -> Result(DownloadResult, String) {
-  // HTTP 다운로드
+  url url: String,
+  name name: String,
+  version version: String,
+  content_id content_id: option.Option(Int),
+  target_path target_path: String,
+) -> Result(DownloadResult, error.Error) {
   use zip_data <- result.try(download_binary(url))
   let hash = integrity.sha256(zip_data)
-
-  // CAS 캐시 히트 체크
-  case cache.has(hash) {
+  use cached <- result.try(cache.has(hash))
+  case cached {
     True -> {
       io.println_error(name <> " v" <> version <> " — 캐시 히트")
       use _ <- result.try(cache.restore_mpk(hash, target_path))
-      let classic = detect_classic_from_cache(hash)
-      Ok(DownloadResult(name, version, content_id, url, hash, classic))
+      use kind <- result.try(detect_widget_kind_from_cache(hash))
+      Ok(DownloadResult(name, version, content_id, url, hash, kind))
     }
     False -> {
-      // ZIP 추출 (메타데이터 + 캐시용)
       use entries <- result.try(
         zip.extract(zip_data)
-        |> result.map_error(fn(e) { name <> " — 추출 실패: " <> e }),
+        |> result.map_error(fn(e) {
+          error.download(name <> " — 추출 실패: " <> error.message(e))
+        }),
       )
-
       let has_mjs =
         list.any(entries, fn(e) { string.ends_with(e.name, ".mjs") })
-      let classic = !has_mjs
-      let save_entries = build_save_entries(entries, classic)
-
-      // CAS 캐시에 저장 (original.mpk + 추출 파일)
+      let kind = case has_mjs {
+        True -> widget.Pluggable
+        False -> widget.Classic
+      }
+      use save_entries <- result.try(build_save_entries(entries, kind))
       use _ <- result.try(cache.put(zip_data, save_entries))
-
-      // 하드 링크로 프로젝트에 배치
       use _ <- result.try(cache.restore_mpk(hash, target_path))
-
       io.println_error(
         name <> " v" <> version <> " — 다운로드 완료 [" <> short_hash(hash) <> "]",
       )
-      Ok(DownloadResult(name, version, content_id, url, hash, classic))
+      Ok(DownloadResult(name, version, content_id, url, hash, kind))
     }
   }
 }
 
-fn detect_classic_from_cache(hash: String) -> Bool {
-  let dir = cache.path(hash)
-  !has_mjs_in_dir(dir)
-}
-
-/// 캐시에서만 복원 (재다운로드 없이)
+/// Restores the from cache.
 pub fn restore_from_cache(
-  hash: String,
-  name: String,
-  version: String,
-  content_id: Option(Int),
-  project_root: String,
-) -> Result(DownloadResult, String) {
+  hash hash: String,
+  name name: String,
+  version version: String,
+  content_id content_id: option.Option(Int),
+  project_root project_root: String,
+) -> Result(DownloadResult, error.Error) {
   let cache_dir = project_root <> "/build/widgets/" <> name
   use _ <- result.try(cache.restore(hash, cache_dir))
-  let classic = !has_mjs_in_dir(cache_dir)
-  Ok(DownloadResult(name, version, content_id, "", hash, classic))
+  use has_mjs <- result.try(has_mjs_in_dir(cache_dir))
+  let kind = case has_mjs {
+    True -> widget.Pluggable
+    False -> widget.Classic
+  }
+  Ok(DownloadResult(name, version, content_id, "", hash, kind))
 }
 
-// ── 내부 헬퍼 ──
+fn detect_widget_kind_from_cache(
+  hash: String,
+) -> Result(widget.Kind, error.Error) {
+  let dir = cache.path(hash)
+  use has_mjs <- result.try(has_mjs_in_dir(dir))
+  Ok(case has_mjs {
+    True -> widget.Pluggable
+    False -> widget.Classic
+  })
+}
 
-fn download_binary(url: String) -> Result(BitArray, String) {
+fn download_binary(url: String) -> Result(BitArray, error.Error) {
   use req <- result.try(
     request.to(url)
-    |> result.map_error(fn(_) { "잘못된 URL: " <> url }),
+    |> result.map_error(fn(_) { error.download("잘못된 URL: " <> url) }),
   )
   let config =
     httpc.configure()
     |> httpc.follow_redirects(True)
     |> httpc.timeout(60_000)
-
   let req = request.map(req, bit_array.from_string)
   httpc.dispatch_bits(config, req)
   |> result.map(fn(resp) { resp.body })
-  |> result.map_error(fn(_) { "다운로드 실패" })
+  |> result.map_error(fn(_) { error.download("다운로드 실패") })
 }
 
-/// ZIP 엔트리에서 저장할 파일 선별
+/// Builds the save entries.
 fn build_save_entries(
   entries: List(zip.ZipEntry),
-  classic: Bool,
-) -> List(#(String, BitArray)) {
-  // package.xml에서 위젯 XML 경로 추출
-  let widget_xml_paths = case
-    list.find(entries, fn(e) { basename(e.name) == "package.xml" })
-  {
-    Ok(pkg_entry) ->
-      case bit_array.to_string(pkg_entry.content) {
-        Ok(xml_str) -> xml.extract_widget_file_paths(xml_str)
-        Error(_) -> []
-      }
-    Error(_) -> []
-  }
-
+  kind: widget.Kind,
+) -> Result(List(#(String, BitArray)), error.Error) {
+  use widget_xml_paths <- result.try(
+    case list.find(entries, fn(e) { basename(e.name) == "package.xml" }) {
+      Ok(pkg_entry) ->
+        case bit_array.to_string(pkg_entry.content) {
+          Ok(xml_string) ->
+            xml.extract_widget_file_paths(xml_string)
+            |> result.map_error(fn(reason) {
+              error.download(
+                "package.xml widget paths could not be parsed: "
+                <> string.inspect(reason),
+              )
+            })
+          Error(_) -> Error(error.download("package.xml was not valid UTF-8"))
+        }
+      Error(_) -> Ok([])
+    },
+  )
   list.filter_map(entries, fn(entry) {
     let name = entry.name
     let fname = basename(name)
     let content = entry.content
-
     // package.xml
     case fname == "package.xml" {
       True -> Ok(#(fname, content))
       False ->
-        // 위젯 XML
         case list.contains(widget_xml_paths, name) {
           True -> Ok(#(fname, content))
           False ->
-            // .mjs 파일
             case string.ends_with(name, ".mjs") {
               True -> Ok(#(fname, content))
               False ->
-                // .css (editorPreview 제외)
                 case
                   string.ends_with(name, ".css")
                   && !string.contains(name, "editorPreview")
                 {
                   True -> Ok(#(fname, content))
                   False ->
-                    // Classic 위젯: .js, .html (경로 유지)
                     case
-                      classic
+                      widget.is_classic(kind)
                       && !string.ends_with(name, "/")
                       && {
                         string.ends_with(name, ".js")
@@ -228,12 +228,13 @@ fn build_save_entries(
         }
     }
   })
+  |> Ok
 }
 
 fn write_to_project(
   entries: List(#(String, BitArray)),
   cache_dir: String,
-) -> Result(Nil, String) {
+) -> Result(Nil, error.Error) {
   use _ <- result.try(create_dir(cache_dir))
   list.try_each(entries, fn(entry) {
     let #(name, content) = entry
@@ -244,25 +245,28 @@ fn write_to_project(
   })
 }
 
-fn create_dir(path: String) -> Result(Nil, String) {
+fn create_dir(path: String) -> Result(Nil, error.Error) {
   case simplifile.create_directory_all(path) {
     Ok(_) -> Ok(Nil)
-    Error(_) -> Error("디렉토리 생성 실패: " <> path)
+    Error(_) -> Error(error.download("디렉토리 생성 실패: " <> path))
   }
 }
 
-fn write_file(path: String, content: BitArray) -> Result(Nil, String) {
+fn write_file(path: String, content: BitArray) -> Result(Nil, error.Error) {
   simplifile.write_bits(path, content)
-  |> result.map_error(fn(_) { "파일 쓰기 실패: " <> path })
+  |> result.map_error(fn(_) { error.download("파일 쓰기 실패: " <> path) })
 }
 
-import simplifile
-
-fn has_mjs_in_dir(dir: String) -> Bool {
-  case simplifile.read_directory(dir) {
-    Ok(files) -> list.any(files, fn(f) { string.ends_with(f, ".mjs") })
-    Error(_) -> False
-  }
+fn has_mjs_in_dir(dir: String) -> Result(Bool, error.Error) {
+  simplifile.read_directory(dir)
+  |> result.map(fn(files) {
+    list.any(files, fn(file) { string.ends_with(file, ".mjs") })
+  })
+  |> result.map_error(fn(reason) {
+    error.download(
+      "위젯 캐시 디렉터리 읽기 실패: " <> dir <> ": " <> string.inspect(reason),
+    )
+  })
 }
 
 fn basename(path: String) -> String {

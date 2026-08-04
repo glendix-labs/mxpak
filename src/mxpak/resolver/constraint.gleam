@@ -1,64 +1,75 @@
-// 버전 제약 조건 파서 — ">= 2.0 and < 3.0", "~> 2.28", "== 1.0.0"
+//// Provides constraint operations for mxpak.
+////
 
 import gleam/list
 import gleam/result
 import gleam/string
-import mxpak/resolver/version.{type Version}
+import mxpak/error
+import mxpak/resolver/version
 
-/// 단일 제약 조건
+/// A typed `Bound` value used by the constraint capability.
 pub type Bound {
-  Gte(Version)
-  Gt(Version)
-  Lte(Version)
-  Lt(Version)
-  Exact(Version)
+  /// The `Gte` variant.
+  Gte(version.Version)
+  /// The `Gt` variant.
+  Gt(version.Version)
+  /// The `Lte` variant.
+  Lte(version.Version)
+  /// The `Lt` variant.
+  Lt(version.Version)
+  /// The `Exact` variant.
+  Exact(version.Version)
   /// ~> 2.5 → >= 2.5.0 and < 3.0.0
   /// ~> 2.5.1 → >= 2.5.1 and < 2.6.0
-  Compatible(Version)
+  Compatible(version.Version)
 }
 
-/// 복합 제약 (AND로 결합)
+/// A typed `Constraint` value used by the constraint capability.
 pub type Constraint {
+  /// The `Constraint` variant.
   Constraint(bounds: List(Bound))
 }
 
-/// 제약 조건 문자열 파싱
-pub fn parse(str: String) -> Result(Constraint, Nil) {
+/// Parses the supplied value.
+pub fn parse(str str: String) -> Result(Constraint, error.MissingValue) {
   let parts =
     string.split(str, " and ")
     |> list.map(string.trim)
     |> list.filter(fn(s) { s != "" })
-
   use bounds <- result.try(try_map(parts, parse_single_bound))
   Ok(Constraint(bounds))
 }
 
-/// 버전이 제약 조건을 만족하는지 확인
-pub fn satisfies(constraint: Constraint, v: Version) -> Bool {
+/// Reports whether a version satisfies the constraint.
+pub fn satisfies(
+  constraint constraint: Constraint,
+  v v: version.Version,
+) -> Bool {
   list.all(constraint.bounds, fn(bound) { check_bound(bound, v) })
 }
 
-/// 버전 목록에서 제약 조건을 만족하는 것만 필터
-pub fn filter(constraint: Constraint, versions: List(Version)) -> List(Version) {
+/// Filters versions by the constraint.
+pub fn filter(
+  constraint constraint: Constraint,
+  versions versions: List(version.Version),
+) -> List(version.Version) {
   list.filter(versions, fn(v) { satisfies(constraint, v) })
 }
 
-/// 제약 조건을 만족하는 최신 버전 선택
+/// Resolves the latest.
 pub fn resolve_latest(
-  constraint: Constraint,
-  versions: List(Version),
-) -> Result(Version, Nil) {
+  constraint constraint: Constraint,
+  versions versions: List(version.Version),
+) -> Result(version.Version, error.MissingValue) {
   filter(constraint, versions) |> version.latest
 }
 
-/// 와일드카드 제약 (모든 버전 허용)
+/// Creates an unconstrained version requirement.
 pub fn any() -> Constraint {
   Constraint(bounds: [])
 }
 
-// ── 내부 구현 ──
-
-fn parse_single_bound(str: String) -> Result(Bound, Nil) {
+fn parse_single_bound(str: String) -> Result(Bound, error.MissingValue) {
   let s = string.trim(str)
   case s {
     ">= " <> rest -> {
@@ -86,10 +97,9 @@ fn parse_single_bound(str: String) -> Result(Bound, Nil) {
       Ok(Compatible(v))
     }
     _ -> {
-      // 버전 번호만 있으면 정확 매치로 처리
       case version.parse(s) {
         Ok(v) -> Ok(Exact(v))
-        Error(_) -> Error(Nil)
+        Error(_) -> Error(error.MissingValue)
       }
     }
   }
@@ -97,15 +107,15 @@ fn parse_single_bound(str: String) -> Result(Bound, Nil) {
 
 fn try_parse_version(
   str: String,
-  cont: fn(Version) -> Result(Bound, Nil),
-) -> Result(Bound, Nil) {
+  cont: fn(version.Version) -> Result(Bound, error.MissingValue),
+) -> Result(Bound, error.MissingValue) {
   case version.parse(string.trim(str)) {
     Ok(v) -> cont(v)
-    Error(_) -> Error(Nil)
+    Error(_) -> Error(error.MissingValue)
   }
 }
 
-fn check_bound(bound: Bound, v: Version) -> Bool {
+fn check_bound(bound: Bound, v: version.Version) -> Bool {
   case bound {
     Gte(min) -> version.gte(v, min)
     Gt(min) -> version.gt(v, min)
@@ -116,8 +126,8 @@ fn check_bound(bound: Bound, v: Version) -> Bool {
   }
 }
 
-/// ~> 호환 범위 계산
-fn check_compatible(base: Version, v: Version) -> Bool {
+/// Checks whether a version is compatible with a constraint.
+fn check_compatible(base: version.Version, v: version.Version) -> Bool {
   case base.patch {
     0 ->
       // ~> 2.5 → >= 2.5.0 and < 3.0.0
@@ -128,6 +138,9 @@ fn check_compatible(base: Version, v: Version) -> Bool {
   }
 }
 
-fn try_map(items: List(a), f: fn(a) -> Result(b, Nil)) -> Result(List(b), Nil) {
+fn try_map(
+  items: List(a),
+  f: fn(a) -> Result(b, error.MissingValue),
+) -> Result(List(b), error.MissingValue) {
   list.try_map(items, f)
 }

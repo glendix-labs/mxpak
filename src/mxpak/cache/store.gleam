@@ -1,12 +1,15 @@
-// CAS (Content-Addressable Storage) — ~/.mxpak/store/{sha256}/
+//// Provides store operations for mxpak.
+////
 
+// CAS (Content-Addressable Storage) — ~/.mxpak/store/{sha256}/
 import gleam/list
 import gleam/result
 import gleam/string
 import mxpak/cache/integrity
+import mxpak/error
 import simplifile
 
-/// 글로벌 캐시 루트 경로
+/// Returns the root directory of the global cache.
 pub fn cache_root() -> String {
   case get_home_dir() {
     Ok(home) -> home <> "/.mxpak/store"
@@ -14,41 +17,39 @@ pub fn cache_root() -> String {
   }
 }
 
-/// SHA-256 기반 캐시 경로
-pub fn cache_path(hash: String) -> String {
+/// Returns the cache directory for a hash.
+pub fn cache_path(hash hash: String) -> String {
   cache_root() <> "/" <> hash
 }
 
-/// 캐시에 해당 해시가 존재하는지 확인
-pub fn has(hash: String) -> Bool {
-  case simplifile.is_directory(cache_path(hash)) {
-    Ok(True) -> True
-    _ -> False
-  }
+/// Reports whether the requested cache entry exists.
+pub fn has(hash hash: String) -> Result(Bool, error.Error) {
+  let path = cache_path(hash)
+  simplifile.is_directory(path)
+  |> result.map_error(fn(reason) {
+    error.cache("캐시 경로 확인 실패: " <> path <> ": " <> string.inspect(reason))
+  })
 }
 
-/// 바이너리 데이터를 캐시에 저장 (SHA-256 해시 키)
-/// 반환: 저장된 디렉토리 경로 + 해시
+/// Stores an MPK and its entries under their content hash.
 pub fn put(
-  data: BitArray,
-  entries: List(#(String, BitArray)),
-) -> Result(#(String, String), String) {
+  data data: BitArray,
+  entries entries: List(#(String, BitArray)),
+) -> Result(#(String, String), error.Error) {
   let hash = integrity.sha256(data)
   let dir = cache_path(hash)
-
-  case has(hash) {
+  use cached <- result.try(has(hash))
+  case cached {
     True -> Ok(#(dir, hash))
     False -> {
       use _ <- result.try(
         simplifile.create_directory_all(dir)
-        |> result.map_error(fn(_) { "캐시 디렉토리 생성 실패: " <> dir }),
+        |> result.map_error(fn(_) { error.cache("캐시 디렉토리 생성 실패: " <> dir) }),
       )
-      // 원본 .mpk 저장
       use _ <- result.try(
         simplifile.write_bits(dir <> "/original.mpk", data)
-        |> result.map_error(fn(_) { "원본 .mpk 캐시 저장 실패" }),
+        |> result.map_error(fn(_) { error.cache("원본 .mpk 캐시 저장 실패") }),
       )
-      // 엔트리를 캐시에 저장
       use _ <- result.try(
         list.try_each(entries, fn(entry) {
           let #(name, content) = entry
@@ -56,10 +57,10 @@ pub fn put(
           let out_dir = dirname(out_path)
           use _ <- result.try(
             simplifile.create_directory_all(out_dir)
-            |> result.map_error(fn(_) { "디렉토리 생성 실패: " <> out_dir }),
+            |> result.map_error(fn(_) { error.cache("디렉토리 생성 실패: " <> out_dir) }),
           )
           simplifile.write_bits(out_path, content)
-          |> result.map_error(fn(_) { "캐시 파일 쓰기 실패: " <> out_path })
+          |> result.map_error(fn(_) { error.cache("캐시 파일 쓰기 실패: " <> out_path) })
         }),
       )
       Ok(#(dir, hash))
@@ -67,84 +68,105 @@ pub fn put(
   }
 }
 
-/// 캐시에서 프로젝트 build/widgets/{name}/ 으로 하드 링크 (실패 시 복사 폴백)
-pub fn link_to_project(hash: String, target_dir: String) -> Result(Nil, String) {
+/// Links cached entries into a project.
+pub fn link_to_project(
+  hash hash: String,
+  target_dir target_dir: String,
+) -> Result(Nil, error.Error) {
   let src = cache_path(hash)
-  case has(hash) {
-    False -> Error("캐시에 해당 해시가 없습니다: " <> hash)
+  use cached <- result.try(has(hash))
+  case cached {
+    False -> Error(error.cache("캐시에 해당 해시가 없습니다: " <> hash))
     True -> {
       use _ <- result.try(
         simplifile.create_directory_all(target_dir)
-        |> result.map_error(fn(_) { "대상 디렉토리 생성 실패" }),
+        |> result.map_error(fn(_) { error.cache("대상 디렉토리 생성 실패") }),
       )
       link_dir(src, target_dir)
     }
   }
 }
 
-/// 전체 캐시 삭제
-pub fn clean() -> Result(Nil, String) {
+/// Removes all cached package data.
+pub fn clean() -> Result(Nil, error.Error) {
   let root = cache_root()
   case simplifile.is_directory(root) {
     Ok(True) ->
       simplifile.delete(root)
-      |> result.map_error(fn(_) { "캐시 삭제 실패" })
-    _ -> Ok(Nil)
+      |> result.map_error(fn(_) { error.cache("캐시 삭제 실패") })
+    Ok(False) -> Ok(Nil)
+    Error(reason) ->
+      Error(error.cache(
+        "캐시 경로 확인 실패: " <> root <> ": " <> string.inspect(reason),
+      ))
   }
 }
 
-/// 캐시의 original.mpk를 대상 경로에 하드 링크 (실패 시 복사 폴백)
-pub fn restore_mpk(hash: String, target_path: String) -> Result(Nil, String) {
+/// Restores the original MPK to the requested path.
+pub fn restore_mpk(
+  hash hash: String,
+  target_path target_path: String,
+) -> Result(Nil, error.Error) {
   let src = cache_path(hash) <> "/original.mpk"
   case simplifile.is_file(src) {
     Ok(True) -> link_file(src, target_path)
-    _ -> Error("캐시에 original.mpk가 없습니다: " <> hash)
+    Ok(False) -> Error(error.cache("캐시에 original.mpk가 없습니다: " <> hash))
+    Error(reason) ->
+      Error(error.cache(
+        "캐시 파일 확인 실패: " <> src <> ": " <> string.inspect(reason),
+      ))
   }
 }
 
-/// 단일 파일을 CAS에 저장 (파일명 보존, 워크스페이스 중복제거용)
+/// Stores a file under its content hash.
 pub fn put_file(
-  data: BitArray,
-  filename: String,
-) -> Result(#(String, String), String) {
+  data data: BitArray,
+  filename filename: String,
+) -> Result(#(String, String), error.Error) {
   let hash = integrity.sha256(data)
   let dir = cache_path(hash)
-  case has(hash) {
+  use cached <- result.try(has(hash))
+  case cached {
     True -> Ok(#(dir, hash))
     False -> {
       use _ <- result.try(
         simplifile.create_directory_all(dir)
-        |> result.map_error(fn(_) { "캐시 디렉토리 생성 실패: " <> dir }),
+        |> result.map_error(fn(_) { error.cache("캐시 디렉토리 생성 실패: " <> dir) }),
       )
       use _ <- result.try(
         simplifile.write_bits(dir <> "/" <> filename, data)
-        |> result.map_error(fn(_) { "파일 캐시 저장 실패: " <> filename }),
+        |> result.map_error(fn(_) { error.cache("파일 캐시 저장 실패: " <> filename) }),
       )
       Ok(#(dir, hash))
     }
   }
 }
 
-/// CAS에서 대상 경로에 하드 링크 복원 (범용)
+/// Restores the file.
 pub fn restore_file(
-  hash: String,
-  filename: String,
-  target_path: String,
-) -> Result(Nil, String) {
+  hash hash: String,
+  filename filename: String,
+  target_path target_path: String,
+) -> Result(Nil, error.Error) {
   let src = cache_path(hash) <> "/" <> filename
   case simplifile.is_file(src) {
     Ok(True) -> link_file(src, target_path)
-    _ -> Error("캐시에 파일이 없습니다: " <> hash <> "/" <> filename)
+    Ok(False) -> Error(error.cache("캐시에 파일이 없습니다: " <> hash <> "/" <> filename))
+    Error(reason) ->
+      Error(error.cache(
+        "캐시 파일 확인 실패: " <> src <> ": " <> string.inspect(reason),
+      ))
   }
 }
 
-@external(erlang, "mxpak_ffi", "make_hard_link")
-fn make_hard_link(existing: String, new: String) -> Result(Nil, String)
-
-// ── 내부 헬퍼 ──
-
-@external(erlang, "mxpak_ffi", "get_home_dir")
-fn get_home_dir() -> Result(String, Nil)
+/// Creates a hard link through the Erlang filesystem boundary.
+@internal
+pub fn create_hard_link(
+  from existing_path: String,
+  to new_path: String,
+) -> Result(Nil, error.Error) {
+  make_hard_link(existing_path, new_path)
+}
 
 fn dirname(path: String) -> String {
   let parts = string.split(path, "/")
@@ -156,25 +178,27 @@ fn dirname(path: String) -> String {
   }
 }
 
-/// 하드 링크 시도, 실패 시 복사 폴백
-fn link_file(src: String, dest: String) -> Result(Nil, String) {
-  let _ = simplifile.delete(dest)
-  case make_hard_link(src, dest) {
+/// Links or copies a cached file to its destination.
+fn link_file(src: String, dest: String) -> Result(Nil, error.Error) {
+  use _ <- result.try(case simplifile.delete(dest) {
+    Ok(Nil) | Error(simplifile.Enoent) -> Ok(Nil)
+    Error(_) -> Error(error.cache("기존 대상 파일 삭제 실패: " <> dest))
+  })
+  case create_hard_link(src, dest) {
     Ok(_) -> Ok(Nil)
     Error(_) ->
       simplifile.copy_file(src, dest)
-      |> result.map_error(fn(_) { "파일 링크/복사 실패: " <> dest })
+      |> result.map_error(fn(_) { error.cache("파일 링크/복사 실패: " <> dest) })
       |> result.map(fn(_) { Nil })
   }
 }
 
-fn link_dir(src: String, dest: String) -> Result(Nil, String) {
+fn link_dir(src: String, dest: String) -> Result(Nil, error.Error) {
   use files <- result.try(
     simplifile.read_directory(src)
-    |> result.map_error(fn(_) { "디렉토리 읽기 실패: " <> src }),
+    |> result.map_error(fn(_) { error.cache("디렉토리 읽기 실패: " <> src) }),
   )
   list.try_each(files, fn(file) {
-    // 원본 .mpk는 프로젝트에 링크하지 않음
     case file == "original.mpk" {
       True -> Ok(Nil)
       False -> link_entry(src <> "/" <> file, dest <> "/" <> file)
@@ -182,15 +206,30 @@ fn link_dir(src: String, dest: String) -> Result(Nil, String) {
   })
 }
 
-fn link_entry(src_path: String, dest_path: String) -> Result(Nil, String) {
+fn link_entry(src_path: String, dest_path: String) -> Result(Nil, error.Error) {
   case simplifile.is_directory(src_path) {
     Ok(True) -> {
       use _ <- result.try(
         simplifile.create_directory_all(dest_path)
-        |> result.map_error(fn(_) { "디렉토리 생성 실패" }),
+        |> result.map_error(fn(_) { error.cache("디렉토리 생성 실패") }),
       )
       link_dir(src_path, dest_path)
     }
-    _ -> link_file(src_path, dest_path)
+    Ok(False) -> link_file(src_path, dest_path)
+    Error(reason) ->
+      Error(error.cache(
+        "캐시 경로 확인 실패: " <> src_path <> ": " <> string.inspect(reason),
+      ))
   }
 }
+
+// -- FFI --
+
+@external(erlang, "mxpak_ffi", "make_hard_link")
+fn make_hard_link(
+  existing_path: String,
+  new_path: String,
+) -> Result(Nil, error.Error)
+
+@external(erlang, "mxpak_ffi", "get_home_dir")
+fn get_home_dir() -> Result(String, error.MissingValue)

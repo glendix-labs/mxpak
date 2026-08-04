@@ -1,32 +1,33 @@
-// gleam.toml 위젯 섹션 쓰기 — 기존 파일 내용을 보존하며 섹션/키 업데이트
+//// Provides toml writer operations for mxpak.
+////
 
 import gleam/int
 import gleam/list
-import gleam/option.{type Option, None, Some}
+import gleam/option
 import gleam/result
 import gleam/string
+import mxpak/error
+import mxpak/widget
 import simplifile
 
-/// gleam.toml에 위젯 정보 기록 (기존 내용 보존)
+/// Adds or updates one `[tools.mxpak.widgets.*]` entry.
 pub fn write_widget(
-  project_root: String,
-  name: String,
-  version: String,
-  content_id: Option(Int),
-  s3_id: Option(String),
-) -> Result(Nil, String) {
+  project_root project_root: String,
+  name name: String,
+  version version: String,
+  content_id content_id: option.Option(Int),
+  s3_id s3_id: option.Option(String),
+) -> Result(Nil, error.Error) {
   let toml_path = project_root <> "/gleam.toml"
   use content <- result.try(
     simplifile.read(toml_path)
-    |> result.map_error(fn(_) { "gleam.toml 읽기 실패" }),
+    |> result.map_error(fn(_) { error.configuration("gleam.toml 읽기 실패") }),
   )
-
-  let section_header = "[tools.mendraw.widgets." <> quote_key(name) <> "]"
+  let section_header = "[tools.mxpak.widgets." <> quote_key(name) <> "]"
   let entries =
     [#("version", quote_string(version))]
     |> append_opt(content_id, fn(id) { #("id", int.to_string(id)) })
     |> append_opt(s3_id, fn(s) { #("s3_id", quote_string(s)) })
-
   let new_content = case string.contains(content, section_header) {
     True ->
       list.fold(entries, content, fn(acc, entry) {
@@ -37,55 +38,51 @@ pub fn write_widget(
         list.map(entries, fn(e) { e.0 <> " = " <> e.1 })
         |> string.join("\n")
       let insertion = "\n\n" <> section_header <> "\n" <> section_lines <> "\n"
-      // 기존 [tools.mendraw.widgets.*] 섹션 뒤에 삽입
-      insert_after_mendraw_section(content, insertion)
+      insert_after_mxpak_section(content, insertion)
     }
   }
-
   simplifile.write(toml_path, new_content)
-  |> result.map_error(fn(_) { "gleam.toml 쓰기 실패" })
+  |> result.map_error(fn(_) { error.configuration("gleam.toml 쓰기 실패") })
 }
 
-/// 위젯 섹션 제거
-pub fn remove_widget(project_root: String, name: String) -> Result(Nil, String) {
+/// Removes one `[tools.mxpak.widgets.*]` entry.
+pub fn remove_widget(
+  project_root project_root: String,
+  name name: String,
+) -> Result(Nil, error.Error) {
   let toml_path = project_root <> "/gleam.toml"
   use content <- result.try(
     simplifile.read(toml_path)
-    |> result.map_error(fn(_) { "gleam.toml 읽기 실패" }),
+    |> result.map_error(fn(_) { error.configuration("gleam.toml 읽기 실패") }),
   )
-
-  let section_header = "[tools.mendraw.widgets." <> quote_key(name) <> "]"
+  let section_header = "[tools.mxpak.widgets." <> quote_key(name) <> "]"
   let new_content = remove_section(content, section_header)
-
   simplifile.write(toml_path, new_content)
-  |> result.map_error(fn(_) { "gleam.toml 쓰기 실패" })
+  |> result.map_error(fn(_) { error.configuration("gleam.toml 쓰기 실패") })
 }
 
-/// meta.toml 쓰기 (build/widgets/{name}/meta.toml)
+/// Writes metadata beside an extracted package.
 pub fn write_meta_toml(
-  path: String,
-  version: String,
-  id: Option(Int),
-  classic: Bool,
-) -> Result(Nil, String) {
+  path path: String,
+  version version: String,
+  id id: option.Option(Int),
+  kind kind: widget.Kind,
+) -> Result(Nil, error.Error) {
   let lines = ["version = " <> quote_string(version)]
   let lines = case id {
-    Some(i) -> list.append(lines, ["id = " <> int.to_string(i)])
-    None -> lines
+    option.Some(i) -> list.append(lines, ["id = " <> int.to_string(i)])
+    option.None -> lines
   }
-  let lines = case classic {
-    True -> list.append(lines, ["classic = true"])
-    False -> lines
+  let lines = case kind {
+    widget.Classic -> list.append(lines, ["classic = true"])
+    widget.Pluggable -> lines
   }
-
   simplifile.write(path, string.join(lines, "\n") <> "\n")
-  |> result.map_error(fn(_) { "meta.toml 쓰기 실패: " <> path })
+  |> result.map_error(fn(_) { error.configuration("meta.toml 쓰기 실패: " <> path) })
 }
 
-// ── 내부 헬퍼 ──
-
-/// TOML 키에 특수문자가 있으면 따옴표로 감쌈
-pub fn quote_key(name: String) -> String {
+/// Quotes a TOML key when required.
+pub fn quote_key(name name: String) -> String {
   case
     string.contains(name, " ")
     || string.contains(name, "-")
@@ -100,7 +97,7 @@ fn quote_string(value: String) -> String {
   "\"" <> value <> "\""
 }
 
-/// 섹션 내 특정 키의 값을 업데이트 (없으면 섹션 끝에 추가)
+/// Updates the key in section.
 fn update_key_in_section(
   content: String,
   section_header: String,
@@ -109,7 +106,6 @@ fn update_key_in_section(
 ) -> String {
   let lines = string.split(content, "\n")
   let new_line = key <> " = " <> value
-
   let #(result_lines, _, found_key) =
     list.fold(lines, #([], False, False), fn(state, line) {
       let #(acc, in_section, key_found) = state
@@ -123,7 +119,6 @@ fn update_key_in_section(
         True ->
           case string.starts_with(trimmed, "[") {
             True -> {
-              // 섹션 끝 도달. 키를 못 찾았으면 여기에 삽입
               case key_found {
                 True -> #([line, ..acc], False, key_found)
                 False -> #([line, new_line, ..acc], False, True)
@@ -140,49 +135,45 @@ fn update_key_in_section(
           }
       }
     })
-
-  // 파일 끝에 도달했지만 키를 못 찾은 경우
   let final_lines = case found_key {
     True -> result_lines
     False -> [new_line, ..result_lines]
   }
-
   list.reverse(final_lines) |> string.join("\n")
 }
 
-/// [tools.mendraw.*] 섹션 뒤에 새 블록을 삽입
-fn insert_after_mendraw_section(content: String, block: String) -> String {
+/// Inserts configuration after the mxpak tool section.
+fn insert_after_mxpak_section(content: String, block: String) -> String {
   let lines = string.split(content, "\n")
-  let last_mendraw_idx = find_last_mendraw_line(lines, 0, -1, False)
-
-  case last_mendraw_idx >= 0 {
+  let last_mxpak_index = find_last_mxpak_line(lines, 0, -1, False)
+  case last_mxpak_index >= 0 {
     True -> {
-      let #(before, after) = list_split_at(lines, last_mendraw_idx + 1)
+      let #(before, after) = list_split_at(lines, last_mxpak_index + 1)
       string.join(before, "\n") <> block <> string.join(after, "\n")
     }
     False -> content <> block
   }
 }
 
-fn find_last_mendraw_line(
+fn find_last_mxpak_line(
   lines: List(String),
   idx: Int,
   last: Int,
-  in_mendraw: Bool,
+  in_mxpak: Bool,
 ) -> Int {
   case lines {
     [] -> last
     [line, ..rest] -> {
       let trimmed = string.trim(line)
-      case string.starts_with(trimmed, "[tools.mendraw") {
-        True -> find_last_mendraw_line(rest, idx + 1, idx, True)
+      case string.starts_with(trimmed, "[tools.mxpak") {
+        True -> find_last_mxpak_line(rest, idx + 1, idx, True)
         False ->
-          case in_mendraw && !string.starts_with(trimmed, "[") {
-            True -> find_last_mendraw_line(rest, idx + 1, idx, True)
+          case in_mxpak && !string.starts_with(trimmed, "[") {
+            True -> find_last_mxpak_line(rest, idx + 1, idx, True)
             False ->
-              case in_mendraw {
-                True -> find_last_mendraw_line(rest, idx + 1, last, False)
-                False -> find_last_mendraw_line(rest, idx + 1, last, False)
+              case in_mxpak {
+                True -> find_last_mxpak_line(rest, idx + 1, last, False)
+                False -> find_last_mxpak_line(rest, idx + 1, last, False)
               }
           }
       }
@@ -190,7 +181,7 @@ fn find_last_mendraw_line(
   }
 }
 
-/// 섹션 전체 제거 (헤더 + 그 아래 키들)
+/// Removes the section.
 fn remove_section(content: String, section_header: String) -> String {
   let lines = string.split(content, "\n")
   let #(result_lines, _) =
@@ -215,12 +206,12 @@ fn remove_section(content: String, section_header: String) -> String {
 
 fn append_opt(
   entries: List(#(String, String)),
-  opt: Option(a),
+  opt: option.Option(a),
   to_entry: fn(a) -> #(String, String),
 ) -> List(#(String, String)) {
   case opt {
-    Some(v) -> list.append(entries, [to_entry(v)])
-    None -> entries
+    option.Some(v) -> list.append(entries, [to_entry(v)])
+    option.None -> entries
   }
 }
 

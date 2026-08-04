@@ -1,74 +1,69 @@
-// Content API 버전 + XAS 버전 데이터 병합
+//// Provides version merger operations for mxpak.
+////
 
 import gleam/dict
 import gleam/list
-import gleam/option.{type Option, None, Some}
+import gleam/option
 import gleam/string
-import mxpak/registry/content_api.{type ContentApiVersion}
-import mxpak/registry/xas_parser.{type XasVersion}
+import mxpak/registry/content_api
+import mxpak/registry/xas_parser
 
+/// A typed `MergedVersion` value used by the version merger capability.
 pub type MergedVersion {
+  /// The `MergedVersion` variant.
   MergedVersion(
     version_number: String,
-    publication_date: Option(String),
-    min_mendix_version: Option(String),
-    s3_object_id: Option(String),
-    react_ready: Option(Bool),
+    publication_date: option.Option(String),
+    min_mendix_version: option.Option(String),
+    download_url: option.Option(String),
+    react_ready: option.Option(Bool),
     downloadable: Bool,
   )
 }
 
-/// Content API + XAS 병합
+/// Merges Content API versions with XAS download metadata.
 pub fn merge(
-  api_versions: List(ContentApiVersion),
-  xas_versions: List(XasVersion),
+  api_versions api_versions: List(content_api.ContentApiVersion),
+  xas_versions xas_versions: List(xas_parser.XasVersion),
 ) -> List(MergedVersion) {
   let xas_index = build_xas_index(xas_versions)
   let s3_template = extract_s3_template(xas_versions)
-
   list.map(api_versions, fn(api) {
-    case dict.get(xas_index, api.version_number) {
-      Ok(xas) ->
-        MergedVersion(
-          version_number: api.version_number,
-          publication_date: api.publication_date,
-          min_mendix_version: api.min_supported_mendix_version,
-          s3_object_id: Some(xas.s3_object_id),
-          react_ready: Some(xas.react_ready),
-          downloadable: True,
+    let xas = dict.get(xas_index, api.version_number) |> option.from_result
+    let download_url = case api.download_url, xas, s3_template {
+      option.Some(url), _, _ -> option.Some(url)
+      option.None, option.Some(version), _ ->
+        option.Some(
+          "https://files.appstore.mendix.com/" <> version.s3_object_id,
         )
-      Error(_) ->
-        case s3_template {
-          Some(#(prefix, file_name)) ->
-            MergedVersion(
-              version_number: api.version_number,
-              publication_date: api.publication_date,
-              min_mendix_version: api.min_supported_mendix_version,
-              s3_object_id: Some(
-                prefix <> "/" <> api.version_number <> "/" <> file_name,
-              ),
-              react_ready: None,
-              downloadable: True,
-            )
-          None ->
-            MergedVersion(
-              version_number: api.version_number,
-              publication_date: api.publication_date,
-              min_mendix_version: api.min_supported_mendix_version,
-              s3_object_id: None,
-              react_ready: None,
-              downloadable: False,
-            )
-        }
+      option.None, option.None, option.Some(#(prefix, file_name)) ->
+        option.Some(
+          "https://files.appstore.mendix.com/"
+          <> prefix
+          <> "/"
+          <> api.version_number
+          <> "/"
+          <> file_name,
+        )
+      option.None, option.None, option.None -> option.None
     }
+    MergedVersion(
+      version_number: api.version_number,
+      publication_date: api.publication_date,
+      min_mendix_version: api.min_supported_mendix_version,
+      download_url: download_url,
+      react_ready: case xas {
+        option.Some(version) -> option.Some(version.react_ready)
+        option.None -> option.None
+      },
+      downloadable: option.is_some(download_url),
+    )
   })
 }
 
-// ── 내부 함수 ──
-
 fn build_xas_index(
-  xas_versions: List(XasVersion),
-) -> dict.Dict(String, XasVersion) {
+  xas_versions: List(xas_parser.XasVersion),
+) -> dict.Dict(String, xas_parser.XasVersion) {
   list.fold(xas_versions, dict.new(), fn(acc, xas) {
     let acc = case xas.version_number {
       "" -> acc
@@ -87,8 +82,8 @@ fn build_xas_index(
 }
 
 fn extract_s3_template(
-  xas_versions: List(XasVersion),
-) -> Option(#(String, String)) {
+  xas_versions: List(xas_parser.XasVersion),
+) -> option.Option(#(String, String)) {
   list.find_map(xas_versions, fn(xas) {
     let parts = string.split(xas.s3_object_id, "/")
     case list.length(parts) >= 4 {

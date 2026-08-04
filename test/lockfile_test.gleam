@@ -1,12 +1,19 @@
+//// Tests lockfile behavior for mxpak.
+////
+
 import gleam/dict
-import gleam/option.{None, Some}
+import gleam/option
+import gleam/string
+import gleeunit/should
 import mxpak/lockfile
+import mxpak/widget
 import simplifile
 
-pub fn write_and_read_test() {
+/// Verifies write and read behavior.
+pub fn write_and_read_test() -> Nil {
   let dir = "build/test_tmp/lock1"
-  let _ = simplifile.create_directory_all(dir)
-
+  simplifile.create_directory_all(dir)
+  |> should.be_ok
   let entries =
     dict.new()
     |> dict.insert(
@@ -14,89 +21,139 @@ pub fn write_and_read_test() {
       lockfile.LockEntry(
         "2.5.0",
         "abc123hash",
-        Some(12_345),
-        Some("w/id/2.5.0/DG.mpk"),
-        False,
+        option.Some(12_345),
+        option.Some("w/id/2.5.0/DG.mpk"),
+        widget.Pluggable,
       ),
     )
     |> dict.insert(
       "Charts",
-      lockfile.LockEntry("1.0.0", "def456hash", None, None, True),
+      lockfile.LockEntry(
+        "1.0.0",
+        "def456hash",
+        option.None,
+        option.None,
+        widget.Classic,
+      ),
     )
-
-  let assert Ok(_) = lockfile.write(dir, entries)
-  let assert Ok(lock) = lockfile.read(dir)
-
-  let assert Ok(dg) = lockfile.get_entry(lock, "DataGrid")
-  let assert True = dg.version == "2.5.0"
-  let assert True = dg.hash == "abc123hash"
-  let assert Some(12_345) = dg.content_id
-  let assert Some("w/id/2.5.0/DG.mpk") = dg.s3_id
-  let assert True = dg.classic == False
-
-  let assert Ok(ch) = lockfile.get_entry(lock, "Charts")
-  let assert True = ch.version == "1.0.0"
-  let assert True = ch.classic == True
-  let assert None = ch.content_id
-
-  let _ = simplifile.delete(dir)
+  lockfile.write(dir, entries)
+  |> should.be_ok
+  let lock =
+    lockfile.read(dir)
+    |> should.be_ok
+  let dg =
+    lockfile.get_entry(lock, "DataGrid")
+    |> should.be_ok
+  { dg.version == "2.5.0" }
+  |> should.be_true
+  { dg.hash == "abc123hash" }
+  |> should.be_true
+  dg.content_id
+  |> should.equal(option.Some(12_345))
+  dg.s3_id
+  |> should.equal(option.Some("w/id/2.5.0/DG.mpk"))
+  dg.kind
+  |> should.equal(widget.Pluggable)
+  let ch =
+    lockfile.get_entry(lock, "Charts")
+    |> should.be_ok
+  { ch.version == "1.0.0" }
+  |> should.be_true
+  ch.kind
+  |> should.equal(widget.Classic)
+  ch.content_id
+  |> should.be_none
+  simplifile.delete(dir)
+  |> should.be_ok
   Nil
 }
 
-pub fn exists_true_test() {
+/// Verifies exists true behavior.
+pub fn exists_true_test() -> Nil {
   let dir = "build/test_tmp/lock2"
-  let _ = simplifile.create_directory_all(dir)
-  let _ = simplifile.write(dir <> "/mxpak.lock", "# empty\n")
-  let assert True = lockfile.exists(dir)
-  let _ = simplifile.delete(dir)
+  simplifile.create_directory_all(dir)
+  |> should.be_ok
+  simplifile.write(dir <> "/mxpak.lock", "# empty\n")
+  |> should.be_ok
+  lockfile.exists(dir)
+  |> should.be_ok
+  |> should.be_true
+  simplifile.delete(dir)
+  |> should.be_ok
   Nil
 }
 
-pub fn exists_false_test() {
-  let assert True = lockfile.exists("build/test_tmp/no_lock") == False
+/// Verifies exists false behavior.
+pub fn exists_false_test() -> Nil {
+  lockfile.exists("build/test_tmp/no_lock")
+  |> should.be_ok
+  |> should.be_false
+  Nil
 }
 
-pub fn read_missing_test() {
-  let assert Error(_) = lockfile.read("build/test_tmp/no_lock")
+/// Verifies read missing behavior.
+pub fn read_missing_test() -> Nil {
+  lockfile.read("build/test_tmp/no_lock")
+  |> should.be_error
+  Nil
 }
 
-pub fn remove_test() {
+/// Verifies remove behavior.
+pub fn remove_test() -> Nil {
   let dir = "build/test_tmp/lock3"
-  let _ = simplifile.create_directory_all(dir)
-  let _ = simplifile.write(dir <> "/mxpak.lock", "# test\n")
-  let assert Ok(_) = lockfile.remove(dir)
-  let assert True = lockfile.exists(dir) == False
-  let _ = simplifile.delete(dir)
+  simplifile.create_directory_all(dir)
+  |> should.be_ok
+  simplifile.write(dir <> "/mxpak.lock", "# test\n")
+  |> should.be_ok
+  lockfile.remove(dir)
+  |> should.be_ok
+  lockfile.exists(dir)
+  |> should.be_ok
+  |> should.be_false
+  simplifile.delete(dir)
+  |> should.be_ok
   Nil
 }
 
-pub fn quoted_key_test() {
+/// Verifies quoted key behavior.
+pub fn quoted_key_test() -> Nil {
   let dir = "build/test_tmp/lock4"
-  let _ = simplifile.create_directory_all(dir)
-
+  simplifile.create_directory_all(dir)
+  |> should.be_ok
   let entries =
     dict.new()
     |> dict.insert(
       "Data Widgets",
-      lockfile.LockEntry("1.0.0", "hash", None, None, False),
+      lockfile.LockEntry(
+        "1.0.0",
+        "hash",
+        option.None,
+        option.None,
+        widget.Pluggable,
+      ),
     )
-
-  let assert Ok(_) = lockfile.write(dir, entries)
-  let assert Ok(content) = simplifile.read(dir <> "/mxpak.lock")
-  let assert True = {
+  lockfile.write(dir, entries)
+  |> should.be_ok
+  let content =
+    simplifile.read(dir <> "/mxpak.lock")
+    |> should.be_ok
+  {
     content
     |> string_contains("[widgets.\"Data Widgets\"]")
   }
-
-  let assert Ok(lock) = lockfile.read(dir)
-  let assert Ok(entry) = lockfile.get_entry(lock, "Data Widgets")
-  let assert True = entry.version == "1.0.0"
-
-  let _ = simplifile.delete(dir)
+  |> should.be_true
+  let lock =
+    lockfile.read(dir)
+    |> should.be_ok
+  let entry =
+    lockfile.get_entry(lock, "Data Widgets")
+    |> should.be_ok
+  { entry.version == "1.0.0" }
+  |> should.be_true
+  simplifile.delete(dir)
+  |> should.be_ok
   Nil
 }
-
-import gleam/string
 
 fn string_contains(haystack: String, needle: String) -> Bool {
   string.contains(haystack, needle)

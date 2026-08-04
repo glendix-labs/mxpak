@@ -13,7 +13,16 @@ jobs:
     name: Build escript
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Check out mxpak
+        uses: actions/checkout@v4
+        with:
+          path: mxpak
+
+      - name: Check out local Chrobot Extra dependency
+        uses: actions/checkout@v4
+        with:
+          repository: glendix-labs/chrobot
+          path: chrobot
 
       - uses: erlef/setup-beam@v1
         with:
@@ -22,12 +31,15 @@ jobs:
           rebar3-version: "3"
 
       - name: Download dependencies
+        working-directory: mxpak
         run: gleam deps download
 
       - name: Build project
+        working-directory: mxpak
         run: gleam build
 
       - name: Build escript
+        working-directory: mxpak
         run: |
           gleam run -m gleescript
           mv mxpak mxp
@@ -36,22 +48,22 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            mxp
-            install.sh
-            install.ps1
+            mxpak/mxp
+            mxpak/install.sh
+            mxpak/install.ps1
           body: |
             ## Install
 
             **macOS / Linux**
 
             ```sh
-            curl -fsSL https://github.com/GG-O-BP/mxpak/releases/latest/download/install.sh | sh
+            curl -fsSL https://github.com/glendix-labs/mxpak/releases/latest/download/install.sh | sh
             ```
 
             **Windows (PowerShell)**
 
             ```powershell
-            iwr -useb https://github.com/GG-O-BP/mxpak/releases/latest/download/install.ps1 | iex
+            iwr -useb https://github.com/glendix-labs/mxpak/releases/latest/download/install.ps1 | iex
             ```
 
             Requires Erlang/OTP 26+ on PATH. See README for details.

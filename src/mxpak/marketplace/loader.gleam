@@ -1,55 +1,70 @@
-// 백그라운드 위젯 로더 — Erlang 프로세스 기반
+//// Provides loader operations for mxpak.
+////
 
-import gleam/erlang/process.{type Subject}
+import gleam/erlang/process
 import gleam/list
-import mxpak/registry/content_api.{type Widget, fetch_content_page, fetch_size}
+import mxpak/registry/content_api
+import mxpak/registry/content_transport
 
+/// A typed `LoaderMsg` value used by the loader capability.
 pub type LoaderMsg {
-  LoaderUpdate(widgets: List(Widget), offset: Int, done: Bool)
+  /// The `LoaderUpdate` variant.
+  LoaderUpdate(widgets: List(content_api.Widget), offset: Int, done: Bool)
 }
 
+/// A typed `LoaderHandle` value used by the loader capability.
 pub type LoaderHandle {
-  LoaderHandle(control: Subject(LoaderControl))
+  /// The `LoaderHandle` variant.
+  LoaderHandle(control: process.Subject(LoaderControl))
 }
 
+/// A typed `LoaderControl` value used by the loader capability.
 pub type LoaderControl {
+  /// The `StopLoader` variant.
   StopLoader
 }
 
+/// Starts this module's managed operation.
 pub fn start(
-  pat: String,
-  initial_offset: Int,
-  initial_widgets: List(Widget),
-  notify: Subject(LoaderMsg),
-  ready: Subject(LoaderHandle),
+  pat pat: String,
+  initial_offset initial_offset: Int,
+  initial_widgets initial_widgets: List(content_api.Widget),
+  notify notify: process.Subject(LoaderMsg),
+  ready ready: process.Subject(LoaderHandle),
 ) -> Nil {
-  let _ =
-    process.spawn(fn() {
-      let control = process.new_subject()
-      process.send(ready, LoaderHandle(control))
-      loader_loop(pat, initial_offset, initial_widgets, notify, control)
-    })
+  process.spawn(fn() {
+    let control = process.new_subject()
+    process.send(ready, LoaderHandle(control))
+    loader_loop(pat, initial_offset, initial_widgets, notify, control)
+  })
   Nil
 }
 
-pub fn stop(handle: LoaderHandle) -> Nil {
+/// Stops this module's managed operation.
+pub fn stop(handle handle: LoaderHandle) -> Nil {
   process.send(handle.control, StopLoader)
 }
 
 fn loader_loop(
   pat: String,
   offset: Int,
-  widgets: List(Widget),
-  notify: Subject(LoaderMsg),
-  control: Subject(LoaderControl),
+  widgets: List(content_api.Widget),
+  notify: process.Subject(LoaderMsg),
+  control: process.Subject(LoaderControl),
 ) -> Nil {
   case process.receive(control, 0) {
     Ok(StopLoader) -> Nil
     Error(_) -> {
-      case fetch_content_page(pat, offset, fetch_size) {
+      case
+        content_transport.fetch_content_page(
+          pat,
+          offset,
+          content_api.fetch_size,
+        )
+      {
         Ok(page) -> {
           let new_widgets = list.append(widgets, page.widgets)
-          let new_offset = offset + fetch_size
+          let new_offset = offset + content_api.fetch_size
           process.send(
             notify,
             LoaderUpdate(new_widgets, new_offset, page.all_done),

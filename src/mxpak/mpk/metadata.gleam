@@ -1,20 +1,25 @@
-// meta.toml 읽기/쓰기 — 위젯 캐시 메타데이터 관리
+//// Provides metadata operations for mxpak.
+////
 
-import gleam/option.{type Option}
-import mxpak/config/toml_reader.{type WidgetConfig}
+import gleam/option
+import mxpak/config/toml_reader
 import mxpak/config/toml_writer
+import mxpak/error
+import mxpak/widget
 
-/// meta.toml 읽기
-pub fn read(path: String) -> Result(WidgetConfig, String) {
+/// Reads cached widget metadata.
+pub fn read(
+  path path: String,
+) -> Result(toml_reader.WidgetConfig, error.Error) {
   toml_reader.read_meta_toml(path)
 }
 
-/// meta.toml 쓰기
+/// Writes cached widget metadata.
 pub fn write(
-  path: String,
-  version: String,
-  id: Option(Int),
-  classic: Bool,
-) -> Result(Nil, String) {
-  toml_writer.write_meta_toml(path, version, id, classic)
+  path path: String,
+  version version: String,
+  id id: option.Option(Int),
+  kind kind: widget.Kind,
+) -> Result(Nil, error.Error) {
+  toml_writer.write_meta_toml(path, version, id, kind)
 }

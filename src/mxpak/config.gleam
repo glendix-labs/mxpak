@@ -1,48 +1,59 @@
-// 프로젝트 설정 통합 인터페이스
-// gleam.toml 읽기/쓰기, .env, meta.toml
+//// Provides config operations for mxpak.
+////
 
-import gleam/option.{type Option}
+import gleam/option
 import mxpak/config/env_reader
-import mxpak/config/toml_reader.{type MendrawConfig, type WidgetConfig}
+import mxpak/config/toml_reader
 import mxpak/config/toml_writer
+import mxpak/error
+import mxpak/widget
 
-/// 프로젝트 설정 읽기 (gleam.toml)
-pub fn read(project_root: String) -> Result(MendrawConfig, String) {
+/// Reads project package configuration.
+pub fn read(
+  project_root project_root: String,
+) -> Result(toml_reader.ProjectConfig, error.Error) {
   toml_reader.read_config(project_root)
 }
 
-/// MENDIX_PAT 조회 (환경변수 → .env)
-pub fn get_pat(project_root: String) -> Option(String) {
+/// Returns the configured Mendix personal access token.
+pub fn get_pat(
+  project_root project_root: String,
+) -> Result(option.Option(String), error.Error) {
   env_reader.get("MENDIX_PAT", project_root)
 }
 
-/// gleam.toml에 위젯 기록
+/// Writes the widget.
 pub fn write_widget(
-  project_root: String,
-  name: String,
-  version: String,
-  content_id: Option(Int),
-  s3_id: Option(String),
-) -> Result(Nil, String) {
+  project_root project_root: String,
+  name name: String,
+  version version: String,
+  content_id content_id: option.Option(Int),
+  s3_id s3_id: option.Option(String),
+) -> Result(Nil, error.Error) {
   toml_writer.write_widget(project_root, name, version, content_id, s3_id)
 }
 
-/// gleam.toml에서 위젯 제거
-pub fn remove_widget(project_root: String, name: String) -> Result(Nil, String) {
+/// Removes the widget.
+pub fn remove_widget(
+  project_root project_root: String,
+  name name: String,
+) -> Result(Nil, error.Error) {
   toml_writer.remove_widget(project_root, name)
 }
 
-/// meta.toml 읽기
-pub fn read_meta(path: String) -> Result(WidgetConfig, String) {
+/// Reads the meta.
+pub fn read_meta(
+  path path: String,
+) -> Result(toml_reader.WidgetConfig, error.Error) {
   toml_reader.read_meta_toml(path)
 }
 
-/// meta.toml 쓰기
+/// Writes the meta.
 pub fn write_meta(
-  path: String,
-  version: String,
-  id: Option(Int),
-  classic: Bool,
-) -> Result(Nil, String) {
-  toml_writer.write_meta_toml(path, version, id, classic)
+  path path: String,
+  version version: String,
+  id id: option.Option(Int),
+  kind kind: widget.Kind,
+) -> Result(Nil, error.Error) {
+  toml_writer.write_meta_toml(path, version, id, kind)
 }

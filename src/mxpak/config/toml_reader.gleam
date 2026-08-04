@@ -1,101 +1,144 @@
-// gleam.toml [tools.mendraw.widgets.*] 파싱 — tom 라이브러리 사용
+//// Provides toml reader operations for mxpak.
+////
 
-import gleam/dict.{type Dict}
-import gleam/option.{type Option}
+import gleam/dict
+import gleam/option
 import gleam/result
+import mxpak/error
+import mxpak/widget
 import simplifile
-import tom.{type Toml}
+import tom
 
-/// 위젯 설정 정보
+/// Selects how resolved widgets are installed into a project.
+pub type WidgetMode {
+  /// Extracts widget package contents into the project cache.
+  Extract
+  /// Keeps widget packages as MPK files in the configured widget directory.
+  Mpk
+}
+
+/// Declares one package managed by mxpak.
 pub type WidgetConfig {
+  /// Stores the requested version and optional Marketplace identifiers.
   WidgetConfig(
     version: String,
-    id: Option(Int),
-    s3_id: Option(String),
-    classic: Option(Bool),
+    id: option.Option(Int),
+    s3_id: option.Option(String),
+    kind: widget.Kind,
   )
 }
 
-/// [tools.mendraw] 전체 설정
-pub type MendrawConfig {
-  MendrawConfig(
-    mendix_version: Option(String),
-    mode: String,
+/// Declares mxpak package installation settings for one project.
+pub type ProjectConfig {
+  /// Stores the target Mendix version, installation mode, and packages.
+  ProjectConfig(
+    mendix_version: option.Option(String),
+    mode: WidgetMode,
     widgets_dir: String,
-    widgets: Dict(String, WidgetConfig),
+    widgets: dict.Dict(String, WidgetConfig),
   )
 }
 
-/// gleam.toml을 파싱하여 mendraw 위젯 설정을 추출
-pub fn read_config(project_root: String) -> Result(MendrawConfig, String) {
+/// Reads `[tools.mxpak]` from a project's `gleam.toml`.
+pub fn read_config(
+  project_root project_root: String,
+) -> Result(ProjectConfig, error.Error) {
   let toml_path = project_root <> "/gleam.toml"
   use content <- result.try(
     simplifile.read(toml_path)
-    |> result.map_error(fn(_) { "gleam.toml 읽기 실패: " <> toml_path }),
+    |> result.map_error(fn(_) {
+      error.configuration("gleam.toml 읽기 실패: " <> toml_path)
+    }),
   )
   use parsed <- result.try(
     tom.parse(content)
-    |> result.map_error(fn(_) { "gleam.toml 파싱 실패" }),
+    |> result.map_error(fn(_) { error.configuration("gleam.toml 파싱 실패") }),
   )
-  Ok(extract_mendraw_config(parsed))
+  extract_project_config(parsed)
 }
 
-/// 파싱된 TOML에서 mendraw 설정 추출
-fn extract_mendraw_config(toml: Dict(String, Toml)) -> MendrawConfig {
+/// Reads metadata written beside an extracted package.
+pub fn read_meta_toml(path path: String) -> Result(WidgetConfig, error.Error) {
+  use content <- result.try(
+    simplifile.read(path)
+    |> result.map_error(fn(_) {
+      error.configuration("meta.toml 읽기 실패: " <> path)
+    }),
+  )
+  use parsed <- result.try(
+    tom.parse(content)
+    |> result.map_error(fn(_) {
+      error.configuration("meta.toml 파싱 실패: " <> path)
+    }),
+  )
+  Ok(parse_single_widget(parsed))
+}
+
+/// Decodes mxpak tool configuration from parsed TOML.
+fn extract_project_config(
+  toml: dict.Dict(String, tom.Toml),
+) -> Result(ProjectConfig, error.Error) {
   let mendix_version =
-    tom.get_string(toml, ["tools", "mendraw", "mendix_version"])
+    tom.get_string(toml, ["tools", "mxpak", "mendix_version"])
     |> option.from_result
-
-  let mode =
-    tom.get_string(toml, ["tools", "mendraw", "mode"])
+  use mode <- result.try(
+    tom.get_string(toml, ["tools", "mxpak", "mode"])
     |> result.unwrap("extract")
-
+    |> parse_widget_mode,
+  )
   let widgets_dir =
-    tom.get_string(toml, ["tools", "mendraw", "widgets_dir"])
+    tom.get_string(toml, ["tools", "mxpak", "widgets_dir"])
     |> result.unwrap("widgets")
-
-  let widgets = case tom.get_table(toml, ["tools", "mendraw", "widgets"]) {
+  let widgets = case tom.get_table(toml, ["tools", "mxpak", "widgets"]) {
     Ok(widgets_table) -> parse_widgets(widgets_table)
     Error(_) -> dict.new()
   }
-
-  MendrawConfig(
+  Ok(ProjectConfig(
     mendix_version: mendix_version,
     mode: mode,
     widgets_dir: widgets_dir,
     widgets: widgets,
-  )
+  ))
 }
 
-/// widgets 테이블의 각 위젯을 WidgetConfig로 파싱
-fn parse_widgets(table: Dict(String, Toml)) -> Dict(String, WidgetConfig) {
+fn parse_widgets(
+  table: dict.Dict(String, tom.Toml),
+) -> dict.Dict(String, WidgetConfig) {
   dict.fold(table, dict.new(), fn(acc, name, value) {
     case value {
       tom.Table(widget_table) | tom.InlineTable(widget_table) ->
         dict.insert(acc, name, parse_single_widget(widget_table))
-      _ -> acc
+      tom.Int(_)
+      | tom.Float(_)
+      | tom.Infinity(_)
+      | tom.Nan(_)
+      | tom.Bool(_)
+      | tom.String(_)
+      | tom.Date(_)
+      | tom.Time(_)
+      | tom.DateTime(..)
+      | tom.Array(_)
+      | tom.ArrayOfTables(_) -> acc
     }
   })
 }
 
-fn parse_single_widget(table: Dict(String, Toml)) -> WidgetConfig {
+fn parse_single_widget(table: dict.Dict(String, tom.Toml)) -> WidgetConfig {
   let version = tom.get_string(table, ["version"]) |> result.unwrap("")
   let id = tom.get_int(table, ["id"]) |> option.from_result
   let s3_id = tom.get_string(table, ["s3_id"]) |> option.from_result
-  let classic = tom.get_bool(table, ["classic"]) |> option.from_result
-
-  WidgetConfig(version: version, id: id, s3_id: s3_id, classic: classic)
+  let kind = case tom.get_bool(table, ["classic"]) {
+    Ok(True) -> widget.Classic
+    Ok(False) | Error(_) -> widget.Pluggable
+  }
+  WidgetConfig(version: version, id: id, s3_id: s3_id, kind: kind)
 }
 
-/// meta.toml 파싱 (build/widgets/{name}/meta.toml)
-pub fn read_meta_toml(path: String) -> Result(WidgetConfig, String) {
-  use content <- result.try(
-    simplifile.read(path)
-    |> result.map_error(fn(_) { "meta.toml 읽기 실패: " <> path }),
-  )
-  use parsed <- result.try(
-    tom.parse(content)
-    |> result.map_error(fn(_) { "meta.toml 파싱 실패: " <> path }),
-  )
-  Ok(parse_single_widget(parsed))
+fn parse_widget_mode(value: String) -> Result(WidgetMode, error.Error) {
+  case value {
+    "extract" -> Ok(Extract)
+    "mpk" -> Ok(Mpk)
+    unsupported ->
+      Error(error.configuration("지원하지 않는 tools.mxpak.mode: " <> unsupported))
+  }
 }

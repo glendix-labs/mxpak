@@ -1,12 +1,16 @@
-// 워크스페이스 관리 — 설정 읽기, 프로젝트 목록, 루트 검증
-// 여러 Mendix 프로젝트의 공통 파일을 CAS + 하드 링크로 중복제거
+//// Discovers Mendix projects and reads workspace configuration.
+////
 
+import gleam/list
 import gleam/result
 import gleam/string
+import mxpak/error
 import simplifile
+import tom
 
-/// 워크스페이스 설정
+/// A typed `WorkspaceConfig` value used by the workspace capability.
 pub type WorkspaceConfig {
+  /// The `WorkspaceConfig` variant.
   WorkspaceConfig(
     root: String,
     include: List(String),
@@ -15,8 +19,8 @@ pub type WorkspaceConfig {
   )
 }
 
-/// 워크스페이스 설정 읽기 — 파일 없으면 기본값
-pub fn read_config(root: String) -> Result(WorkspaceConfig, String) {
+/// Reads the config.
+pub fn read_config(root root: String) -> Result(WorkspaceConfig, error.Error) {
   let config_path = root <> "/.mxpak-workspace.toml"
   case simplifile.is_file(config_path) {
     Ok(True) -> parse_config(root, config_path)
@@ -24,69 +28,71 @@ pub fn read_config(root: String) -> Result(WorkspaceConfig, String) {
   }
 }
 
-/// 단일 Mendix 프로젝트 디렉토리 여부 — *.mpr 파일 존재로 판별
-pub fn is_mendix_project_dir(root: String) -> Bool {
-  case simplifile.read_directory(root) {
-    Ok(entries) ->
-      list.any(entries, fn(name) { string.ends_with(name, ".mpr") })
-    Error(_) -> False
-  }
+/// Reports whether a directory is a Mendix project.
+pub fn is_mendix_project_dir(root root: String) -> Result(Bool, error.Error) {
+  simplifile.read_directory(root)
+  |> result.map(fn(entries) {
+    list.any(entries, fn(name) { string.ends_with(name, ".mpr") })
+  })
+  |> result.map_error(fn(reason) {
+    error.workspace(
+      "프로젝트 디렉터리 확인 실패: " <> root <> ": " <> string.inspect(reason),
+    )
+  })
 }
 
-/// 스캔 대상 프로젝트 자동 감지
-/// - root 자체가 Mendix 프로젝트(*.mpr 포함) → [root] 단독
-/// - 아니면 root 하위 1단계 중 *.mpr 가진 디렉토리들
-pub fn discover_projects(root: String) -> Result(List(String), String) {
-  case is_mendix_project_dir(root) {
+/// Discovers Mendix projects below a workspace root.
+pub fn discover_projects(
+  root root: String,
+) -> Result(List(String), error.Error) {
+  use root_is_project <- result.try(is_mendix_project_dir(root))
+  case root_is_project {
     True -> Ok([root])
     False -> {
       use entries <- result.try(
         simplifile.read_directory(root)
-        |> result.map_error(fn(_) { "디렉토리 읽기 실패: " <> root }),
+        |> result.map_error(fn(_) { error.workspace("디렉토리 읽기 실패: " <> root) }),
       )
-      let projects =
-        list.filter_map(entries, fn(name) {
+      use projects <- result.try(
+        list.try_fold(entries, [], fn(projects, name) {
           let path = root <> "/" <> name
           case string.starts_with(name, ".") {
-            True -> Error(Nil)
+            True -> Ok(projects)
             False ->
               case simplifile.is_directory(path) {
-                Ok(True) ->
-                  case is_mendix_project_dir(path) {
-                    True -> Ok(path)
-                    False -> Error(Nil)
+                Ok(True) -> {
+                  use is_project <- result.try(is_mendix_project_dir(path))
+                  case is_project {
+                    True -> Ok([path, ..projects])
+                    False -> Ok(projects)
                   }
-                _ -> Error(Nil)
+                }
+                Ok(False) -> Ok(projects)
+                Error(reason) ->
+                  Error(error.workspace(
+                    "하위 프로젝트 경로 확인 실패: "
+                    <> path
+                    <> ": "
+                    <> string.inspect(reason),
+                  ))
               }
           }
-        })
-      Ok(projects)
+        }),
+      )
+      Ok(list.reverse(projects))
     }
   }
 }
 
-
-// ── 내부 ──
-
-import gleam/list
-
 fn default_config(root: String) -> WorkspaceConfig {
   WorkspaceConfig(
     root: root,
-    // 확장자 기반: 위젯(*.mpk) + 라이브러리(*.jar)
-    // install 받은 위젯은 이미 CAS+하드링크 상태라 scan은 사실상 no-op,
-    // Studio Pro가 직접 배치한 위젯은 scan이 처음으로 흡수 → 절감 발생.
     include: ["*.mpk", "*.jar"],
-    // 디렉토리 기반 — Mendix 표준 테마 자산 (확장자 무관 전체 스캔)
     include_dirs: ["themesource"],
     exclude_dirs: [
-      ".git", ".svn",
-      ".mendix-cache", "theme-cache",
-      "deployment", "mprcontents",
-      "releases", "resources",
-      "javascriptsource", "javasource", "mlsource", "modules",
-      "theme",
-      "node_modules",
+      ".git", ".svn", ".mendix-cache", "theme-cache", "deployment",
+      "mprcontents", "releases", "resources", "javascriptsource", "javasource",
+      "mlsource", "modules", "theme", "node_modules",
     ],
   )
 }
@@ -94,46 +100,80 @@ fn default_config(root: String) -> WorkspaceConfig {
 fn parse_config(
   root: String,
   config_path: String,
-) -> Result(WorkspaceConfig, String) {
+) -> Result(WorkspaceConfig, error.Error) {
   use content <- result.try(
     simplifile.read(config_path)
-    |> result.map_error(fn(_) { "설정 파일 읽기 실패: " <> config_path }),
+    |> result.map_error(fn(_) {
+      error.workspace("설정 파일 읽기 실패: " <> config_path)
+    }),
   )
   use parsed <- result.try(
     tom.parse(content)
-    |> result.map_error(fn(_) { "설정 파일 파싱 실패" }),
+    |> result.map_error(fn(_) { error.workspace("설정 파일 파싱 실패") }),
   )
-
   let include = case tom.get_array(parsed, ["scan", "include"]) {
-    Ok(arr) -> list.filter_map(arr, fn(v) {
-      case v {
-        tom.String(s) -> Ok(s)
-        _ -> Error(Nil)
-      }
-    })
+    Ok(arr) ->
+      list.filter_map(arr, fn(v) {
+        case v {
+          tom.String(s) -> Ok(s)
+          tom.Int(_)
+          | tom.Float(_)
+          | tom.Infinity(_)
+          | tom.Nan(_)
+          | tom.Bool(_)
+          | tom.Date(_)
+          | tom.Time(_)
+          | tom.DateTime(..)
+          | tom.Array(_)
+          | tom.ArrayOfTables(_)
+          | tom.Table(_)
+          | tom.InlineTable(_) -> Error(Nil)
+        }
+      })
     Error(_) -> default_config(root).include
   }
-
   let include_dirs = case tom.get_array(parsed, ["scan", "include_dirs"]) {
-    Ok(arr) -> list.filter_map(arr, fn(v) {
-      case v {
-        tom.String(s) -> Ok(s)
-        _ -> Error(Nil)
-      }
-    })
+    Ok(arr) ->
+      list.filter_map(arr, fn(v) {
+        case v {
+          tom.String(s) -> Ok(s)
+          tom.Int(_)
+          | tom.Float(_)
+          | tom.Infinity(_)
+          | tom.Nan(_)
+          | tom.Bool(_)
+          | tom.Date(_)
+          | tom.Time(_)
+          | tom.DateTime(..)
+          | tom.Array(_)
+          | tom.ArrayOfTables(_)
+          | tom.Table(_)
+          | tom.InlineTable(_) -> Error(Nil)
+        }
+      })
     Error(_) -> default_config(root).include_dirs
   }
-
   let exclude_dirs = case tom.get_array(parsed, ["scan", "exclude_dirs"]) {
-    Ok(arr) -> list.filter_map(arr, fn(v) {
-      case v {
-        tom.String(s) -> Ok(s)
-        _ -> Error(Nil)
-      }
-    })
+    Ok(arr) ->
+      list.filter_map(arr, fn(v) {
+        case v {
+          tom.String(s) -> Ok(s)
+          tom.Int(_)
+          | tom.Float(_)
+          | tom.Infinity(_)
+          | tom.Nan(_)
+          | tom.Bool(_)
+          | tom.Date(_)
+          | tom.Time(_)
+          | tom.DateTime(..)
+          | tom.Array(_)
+          | tom.ArrayOfTables(_)
+          | tom.Table(_)
+          | tom.InlineTable(_) -> Error(Nil)
+        }
+      })
     Error(_) -> default_config(root).exclude_dirs
   }
-
   Ok(WorkspaceConfig(
     root: root,
     include: include,
@@ -141,5 +181,3 @@ fn parse_config(
     exclude_dirs: exclude_dirs,
   ))
 }
-
-import tom
