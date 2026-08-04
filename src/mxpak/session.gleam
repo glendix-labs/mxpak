@@ -1,10 +1,10 @@
 //// Establishes and validates Mendix browser sessions for mxpak.
 ////
 
-import chrobot_extra
-import chrobot_extra/page
 import gleam/result
 import gleam/string
+import gleam_rover
+import gleam_rover/page
 import mxpak/error
 
 /// Ensures a valid Mendix browser session exists.
@@ -22,21 +22,21 @@ pub fn is_valid() -> Result(Bool, error.Error) {
 
 fn validate_profile_session() -> Result(Bool, error.Error) {
   use browser <- result.try(
-    chrobot_extra.launch()
+    gleam_rover.launch()
     |> result.map_error(fn(e) {
       error.session("브라우저 시작 실패: " <> string.inspect(e))
     }),
   )
   let result = {
     use page <- result.try(
-      chrobot_extra.open(browser, "https://home.mendix.com/", 30_000)
+      gleam_rover.open(browser, "https://home.mendix.com/", 30_000)
       |> result.map_error(fn(e) {
         error.session("페이지 열기 실패: " <> string.inspect(e))
       }),
     )
     use _ <- result.try(
       page.wait_for_url(
-        page: chrobot_extra.with_timeout(page, 30_000),
+        page: gleam_rover.with_timeout(page, 30_000),
         matching: fn(url) { url != "about:blank" },
         time_out: 30_000,
       )
@@ -45,8 +45,8 @@ fn validate_profile_session() -> Result(Bool, error.Error) {
       }),
     )
     use _ <- result.try(
-      chrobot_extra.await_selector(
-        on: chrobot_extra.with_timeout(page, 30_000),
+      gleam_rover.await_selector(
+        on: gleam_rover.with_timeout(page, 30_000),
         select: "body",
       )
       |> result.map_error(fn(e) {
@@ -61,7 +61,7 @@ fn validate_profile_session() -> Result(Bool, error.Error) {
     )
     Ok(string.contains(url, "home.mendix"))
   }
-  case result, chrobot_extra.quit(browser) {
+  case result, gleam_rover.quit(browser) {
     Error(error), Ok(_) | Error(error), Error(_) -> Error(error)
     Ok(value), Ok(_) -> Ok(value)
     Ok(_), Error(error) ->
@@ -71,21 +71,21 @@ fn validate_profile_session() -> Result(Bool, error.Error) {
 
 fn interactive_login() -> Result(Nil, error.Error) {
   use browser <- result.try(
-    chrobot_extra.launch_window()
+    gleam_rover.launch_window()
     |> result.map_error(fn(e) {
       error.session("visible 브라우저 시작 실패: " <> string.inspect(e))
     }),
   )
   let result = {
     use page <- result.try(
-      chrobot_extra.open(browser, "https://login.mendix.com/", 30_000)
+      gleam_rover.open(browser, "https://login.mendix.com/", 30_000)
       |> result.map_error(fn(e) {
         error.session("로그인 페이지 열기 실패: " <> string.inspect(e))
       }),
     )
     use _ <- result.try(
       page.wait_for_url(
-        page: chrobot_extra.with_timeout(page, 300_000),
+        page: gleam_rover.with_timeout(page, 300_000),
         matching: fn(url) { string.starts_with(url, "https://home.mendix.com") },
         time_out: 300_000,
       )
@@ -95,7 +95,7 @@ fn interactive_login() -> Result(Nil, error.Error) {
     )
     Ok(Nil)
   }
-  case result, chrobot_extra.quit(browser) {
+  case result, gleam_rover.quit(browser) {
     Error(error), Ok(_) | Error(error), Error(_) -> Error(error)
     Ok(value), Ok(_) -> Ok(value)
     Ok(_), Error(error) ->

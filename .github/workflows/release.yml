@@ -18,11 +18,11 @@ jobs:
         with:
           path: mxpak
 
-      - name: Check out local Chrobot Extra dependency
+      - name: Check out local GleamRover dependency
         uses: actions/checkout@v4
         with:
-          repository: glendix-labs/chrobot
-          path: chrobot
+          repository: glendix-labs/GleamRover
+          path: gleam_rover
 
       - uses: erlef/setup-beam@v1
         with:

@@ -1,12 +1,6 @@
 //// Provides browser operations for mxpak.
 ////
 
-import chrobot_extra
-import chrobot_extra/chrome
-import chrobot_extra/network_idle
-import chrobot_extra/network_listener
-import chrobot_extra/protocol/page
-import chrobot_extra/protocol/runtime
 import gleam/dict
 import gleam/erlang/process
 import gleam/int
@@ -15,6 +9,12 @@ import gleam/list
 import gleam/option
 import gleam/result
 import gleam/string
+import gleam_rover
+import gleam_rover/chrome
+import gleam_rover/network_idle
+import gleam_rover/network_listener
+import gleam_rover/protocol/page
+import gleam_rover/protocol/runtime
 import mxpak/error
 import mxpak/registry/xas_parser
 
@@ -23,7 +23,7 @@ pub fn get_all_versions(
   content_ids content_ids: List(Int),
 ) -> Result(dict.Dict(Int, List(xas_parser.XasVersion)), error.Error) {
   use browser <- result.try(
-    chrobot_extra.launch()
+    gleam_rover.launch()
     |> result.map_error(fn(_) { error.browser("브라우저 시작 실패") }),
   )
   let results =
@@ -32,7 +32,7 @@ pub fn get_all_versions(
       dict.insert(acc, content_id, versions)
     })
   use _ <- result.try(
-    chrobot_extra.quit(browser)
+    gleam_rover.quit(browser)
     |> result.map_error(fn(error) {
       error.browser("브라우저 종료 실패: " <> string.inspect(error))
     }),
@@ -45,12 +45,12 @@ pub fn get_versions_for(
   content_id content_id: Int,
 ) -> Result(List(xas_parser.XasVersion), error.Error) {
   use browser <- result.try(
-    chrobot_extra.launch()
+    gleam_rover.launch()
     |> result.map_error(fn(_) { error.browser("브라우저 시작 실패") }),
   )
   let versions = collect_versions_for_id(browser, content_id)
   use _ <- result.try(
-    chrobot_extra.quit(browser)
+    gleam_rover.quit(browser)
     |> result.map_error(fn(error) {
       error.browser("브라우저 종료 실패: " <> string.inspect(error))
     }),
@@ -84,7 +84,7 @@ fn collect_versions_impl(
   url: String,
 ) -> Result(List(xas_parser.XasVersion), error.Error) {
   use page <- result.try(
-    chrobot_extra.open(browser, "about:blank", 30_000)
+    gleam_rover.open(browser, "about:blank", 30_000)
     |> result.map_error(fn(_) { error.browser("페이지 생성 실패") }),
   )
   let result = {
@@ -99,7 +99,7 @@ fn collect_versions_impl(
           error.browser("network idle listener 시작 실패")
         }),
       )
-      let caller = chrobot_extra.page_caller(page)
+      let caller = gleam_rover.page_caller(page)
       use _ <- result.try(
         page.navigate(
           caller,
@@ -157,7 +157,7 @@ fn collect_versions_impl(
     network_listener.stop(response_listener)
     inner_result
   }
-  case result, chrobot_extra.close(page) {
+  case result, gleam_rover.close(page) {
     Error(error), Ok(_) | Error(error), Error(_) -> Error(error)
     Ok(value), Ok(_) -> Ok(value)
     Ok(_), Error(error) ->
@@ -180,15 +180,15 @@ fn deduplicate_versions(
   }).0
 }
 
-fn try_click_releases_tab(page: chrobot_extra.Page) -> Nil {
-  case chrobot_extra.click_selector(on: page, target: "a.mx-name-tabPage10") {
+fn try_click_releases_tab(page: gleam_rover.Page) -> Nil {
+  case gleam_rover.click_selector(on: page, target: "a.mx-name-tabPage10") {
     Ok(_) -> Nil
     Error(_) -> {
       case try_click_tab_by_text(page) {
         Ok(_) -> Nil
         Error(_) -> {
           case
-            chrobot_extra.eval(
+            gleam_rover.eval(
               on: page,
               js: "(() => { const tabs = document.querySelectorAll('a[role=\"tab\"]'); for (const t of tabs) { if (t.textContent.includes('Releases')) { t.click(); return true; } } return false; })()",
             )
@@ -206,9 +206,9 @@ fn try_click_releases_tab(page: chrobot_extra.Page) -> Nil {
 }
 
 fn try_click_tab_by_text(
-  page: chrobot_extra.Page,
+  page: gleam_rover.Page,
 ) -> Result(Nil, chrome.RequestError) {
-  use tabs <- result.try(chrobot_extra.select_all(
+  use tabs <- result.try(gleam_rover.select_all(
     on: page,
     matching: "a[role=\"tab\"]",
   ))
@@ -216,17 +216,17 @@ fn try_click_tab_by_text(
 }
 
 fn find_and_click_releases(
-  page: chrobot_extra.Page,
+  page: gleam_rover.Page,
   tabs: List(runtime.RemoteObjectId),
 ) -> Result(Nil, chrome.RequestError) {
   case tabs {
     [] -> Error(chrome.NotFoundError)
     [tab, ..rest] -> {
-      case chrobot_extra.get_text(on: page, from: tab) {
+      case gleam_rover.get_text(on: page, from: tab) {
         Ok(text) -> {
           case string.contains(text, "Releases") {
             True ->
-              chrobot_extra.click(on: page, target: tab)
+              gleam_rover.click(on: page, target: tab)
               |> result.map(fn(_) { Nil })
             False -> find_and_click_releases(page, rest)
           }
