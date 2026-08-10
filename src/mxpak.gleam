@@ -21,7 +21,7 @@ import mxpak/workspace/scanner
 import mxpak/workspace/status
 
 /// The `version` constant used by the mxpak capability.
-pub const version = "0.3.0"
+pub const version = "1.0.0"
 
 /// Runs this module's command-line entrypoint.
 pub fn main() -> Nil {

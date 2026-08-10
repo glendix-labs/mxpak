@@ -18,11 +18,11 @@ jobs:
         with:
           path: mxpak
 
-      - name: Check out local GleamRover dependency
+      - name: Check out local Glendam dependency
         uses: actions/checkout@v4
         with:
-          repository: glendix-labs/GleamRover
-          path: gleam_rover
+          repository: glendix-labs/glendam
+          path: glendam
 
       - uses: erlef/setup-beam@v1
         with:
