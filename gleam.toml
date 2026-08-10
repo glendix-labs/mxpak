@@ -3,7 +3,7 @@ version = "1.0.0"
 gleam = ">= 1.17.0"
 target = "erlang"
 description = "Mendix widget .mpk package manager — search, resolve, download, cache"
-licences = ["MPL-2.0"]
+licences = ["MIT"]
 repository = { type = "github", user = "glendix-labs", repo = "mxpak" }
 
 [dependencies]

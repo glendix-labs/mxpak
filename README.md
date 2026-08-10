@@ -166,4 +166,4 @@ Missing keys fall back to defaults.
 
 ## Licence
 
-[MPL-2.0](LICENCE)
+[MIT License](LICENCE)

@@ -166,4 +166,4 @@ exclude_dirs = [".git", "deployment"]
 
 ## 라이센스
 
-[MPL-2.0](LICENCE)
+[MIT 라이선스](LICENCE)
