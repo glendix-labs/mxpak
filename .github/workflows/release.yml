@@ -6,23 +6,56 @@ on:
       - "v*"
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build-escript:
     name: Build escript
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
     steps:
+      - name: Validate release tag
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          if [[ ! "$version" =~ ^[0-9]+(\.[0-9]+){2}$ ]]; then
+            echo "::error::Release tags must use v-prefixed semantic versions."
+            exit 1
+          fi
+
       - name: Check out mxpak
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           path: mxpak
+          persist-credentials: false
 
       - name: Check out local Glendam dependency
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: glendix-labs/glendam
           path: glendam
+          persist-credentials: false
+
+      - name: Verify tag and package versions match
+        working-directory: mxpak
+        shell: bash
+        run: |
+          tag_version="${GITHUB_REF_NAME#v}"
+          gleam_version="$(sed -n -E 's/^version = "([^"]+)"$/\1/p' gleam.toml)"
+          source_version="$(
+            sed -n -E 's/^pub const version = "([^"]+)"$/\1/p' src/mxpak.gleam
+          )"
+
+          if [[ "$gleam_version" != "$tag_version" ]]; then
+            echo "::error::gleam.toml version '$gleam_version' does not match '$tag_version'."
+            exit 1
+          fi
+          if [[ "$source_version" != "$tag_version" ]]; then
+            echo "::error::src/mxpak.gleam version '$source_version' does not match '$tag_version'."
+            exit 1
+          fi
 
       - uses: erlef/setup-beam@v1
         with:
@@ -44,26 +77,37 @@ jobs:
           gleam run -m gleescript
           mv mxpak mxp
 
+      - name: Verify built version
+        working-directory: mxpak
+        shell: bash
+        run: |
+          expected="mxpak ${GITHUB_REF_NAME}"
+          actual="$(escript ./mxp --version)"
+          if [[ "$actual" != "$expected" ]]; then
+            echo "::error::Built version '$actual' does not match tag '$GITHUB_REF_NAME'."
+            exit 1
+          fi
+
       - name: Upload to Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
-          files: |
-            mxpak/mxp
-            mxpak/install.sh
-            mxpak/install.ps1
+          files: mxpak/mxp
           body: |
             ## Install
 
-            **macOS / Linux**
+            Download the release asset named `mxp`, make it executable, and
+            place it on `PATH`. Erlang/OTP 26 or later is required.
 
-            ```sh
-            curl -fsSL https://github.com/glendix-labs/mxpak/releases/latest/download/install.sh | sh
-            ```
+            Arch Linux users can install the `mxpak-bin` AUR package after its
+            initial publication. See the README for details.
 
-            **Windows (PowerShell)**
-
-            ```powershell
-            iwr -useb https://github.com/glendix-labs/mxpak/releases/latest/download/install.ps1 | iex
-            ```
-
-            Requires Erlang/OTP 26+ on PATH. See README for details.
+  publish-aur:
+    name: Publish AUR package
+    needs: build-escript
+    uses: ./.github/workflows/aur.yml
+    with:
+      tag: ${{ github.ref_name }}
+      publish: ${{ vars.AUR_PUBLISH_ENABLED == 'true' }}
+      initialize_empty: ${{ vars.AUR_INITIALIZE_EMPTY == 'true' }}
+    secrets:
+      AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}

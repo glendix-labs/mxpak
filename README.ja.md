@@ -23,41 +23,33 @@ mxpak には 2 つの補完的なメカニズムがあり、両方とも `~/.mxp
 - Windows: `winget install Erlang.ErlangOTP`
 - Linux: `sudo apt-get install erlang` (またはディストリビューションの同等のもの)
 
-### ワンライナー
+### リリースバイナリ
 
-**macOS / Linux**
-
-```sh
-curl -fsSL https://github.com/glendix-labs/mxpak/releases/latest/download/install.sh | sh
-```
-
-**Windows (PowerShell)**
-
-```powershell
-iwr -useb https://github.com/glendix-labs/mxpak/releases/latest/download/install.ps1 | iex
-```
-
-どちらのスクリプトも、`mxp` escript を `~/.mxpak/bin/` (macOS/Linux) または `%USERPROFILE%\.mxpak\bin\` (Windows) に配置します。
-
-**Windows** - インストーラーはディレクトリをユーザー `PATH` に自動的に追加しますが、変更は **新しい** ターミナル ウィンドウでのみ有効になります。同じセッションで `mxp` をすぐに使用するには:
-
-```powershell
-$env:PATH = "$env:USERPROFILE\.mxpak\bin;$env:PATH"
-mxp --version
-```
-
-**macOS / Linux** — シェル rc ファイルにディレクトリを自分で追加します。
+最新の GitHub リリースから `mxp` をダウンロードし、実行権限を付けて
+`PATH` 上に配置します。
 
 ```sh
-export PATH="$HOME/.mxpak/bin:$PATH"     # add to ~/.zshrc, ~/.bashrc, etc.
-mxp --version
+install -d "$HOME/.local/bin"
+curl -fsSL \
+  https://github.com/glendix-labs/mxpak/releases/latest/download/mxp \
+  -o "$HOME/.local/bin/mxp"
+chmod +x "$HOME/.local/bin/mxp"
 ```
+
+`mxp` アセットは Erlang escript なので、`escript /path/to/mxp` と明示して
+実行することもできます。
+
+Arch Linux では、最初の AUR 公開後に `mxpak-bin` AUR パッケージを利用できます。
+メンテナー設定とリリース自動化については `AUR_PUBLISHING.md` を参照してください。
 
 ### トラブルシューティング
 
-- **`escript: ... command not found`** — Erlang/OTP がありません。上記の前提条件手順に従ってインストールし、インストーラーを再実行します。
-- **`mxp: command not found` (インストール後)** — 新しいターミナルを開くか、上記のように現在のセッションに PATH を適用します。
-- **`undefined function mxpak:main/0`** — 古い escript バンドル。インストーラーを再実行して最新リリースを取得します。
+- **`escript: ... command not found`** — Erlang/OTP がありません。上記の
+  前提条件に従ってインストールしてください。
+- **`mxp: command not found`** — `$HOME/.local/bin` などのインストール先が
+  `PATH` に含まれているか確認してください。
+- **`undefined function mxpak:main/0`** — 現在のリリースの `mxp` アセットを
+  再ダウンロードしてください。
 
 ### ソースより
 

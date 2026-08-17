@@ -8,6 +8,9 @@ erl_crash.dump
 /mxpak
 /mxp
 
+# Local AUR checkout
+/.aur-work/
+
 # Project-local generated dependency lock
 /mxpak.lock
 

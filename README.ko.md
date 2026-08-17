@@ -23,41 +23,33 @@ mxpak에는 `~/.mxpak/store/{sha256}/`의 동일한 콘텐츠 주소 지정 가�
 - 윈도우즈: `winget install Erlang.ErlangOTP`
 - Linux: `sudo apt-get install erlang`(또는 해당 배포판의 동급 제품)
 
-### 한 줄짜리
+### 릴리스 바이너리
 
-**맥OS/리눅스**
-
-```sh
-curl -fsSL https://github.com/glendix-labs/mxpak/releases/latest/download/install.sh | sh
-```
-
-**윈도우(파워셸)**
-
-```powershell
-iwr -useb https://github.com/glendix-labs/mxpak/releases/latest/download/install.ps1 | iex
-```
-
-두 스크립트 모두 `mxp` escript를 `~/.mxpak/bin/`(macOS/Linux) 또는 `%USERPROFILE%\.mxpak\bin\`(Windows)에 배치합니다.
-
-**Windows** — 설치 프로그램이 사용자 `PATH`에 디렉토리를 자동으로 추가하지만 변경 사항은 **새** 터미널 창에만 적용됩니다. 동일한 세션에서 즉시 `mxp`를 사용하려면:
-
-```powershell
-$env:PATH = "$env:USERPROFILE\.mxpak\bin;$env:PATH"
-mxp --version
-```
-
-**macOS/Linux** — 쉘 rc 파일에 직접 디렉터리를 추가하세요.
+최신 GitHub 릴리스의 `mxp`를 내려받아 실행 권한을 부여하고 `PATH`에
+배치합니다.
 
 ```sh
-export PATH="$HOME/.mxpak/bin:$PATH"     # add to ~/.zshrc, ~/.bashrc, etc.
-mxp --version
+install -d "$HOME/.local/bin"
+curl -fsSL \
+  https://github.com/glendix-labs/mxpak/releases/latest/download/mxp \
+  -o "$HOME/.local/bin/mxp"
+chmod +x "$HOME/.local/bin/mxp"
 ```
+
+`mxp` 자산은 Erlang escript이므로 `escript /path/to/mxp`로 명시적으로
+실행할 수도 있습니다.
+
+Arch Linux에서는 최초 AUR 게시가 완료된 뒤 `mxpak-bin` AUR 패키지를 사용할
+수 있습니다. 관리자 설정과 릴리스 자동화는 `AUR_PUBLISHING.md`를 참고하세요.
 
 ### 문제 해결
 
-- **`escript: ... command not found`** — Erlang/OTP가 없습니다. 위의 필수 구성 요소 단계를 통해 설치하고 설치 프로그램을 다시 실행하세요.
-- **`mxp: command not found`(설치 후)** — 새 터미널을 열거나 위와 같이 현재 세션에 PATH를 적용합니다.
-- **`undefined function mxpak:main/0`** — 오래된 escript 번들입니다. 최신 릴리스를 가져오려면 설치 프로그램을 다시 실행하세요.
+- **`escript: ... command not found`** — Erlang/OTP가 없습니다. 위의 전제
+  조건에 따라 설치하세요.
+- **`mxp: command not found`** — `$HOME/.local/bin` 같은 설치 디렉터리가
+  `PATH`에 포함되어 있는지 확인하세요.
+- **`undefined function mxpak:main/0`** — 현재 릴리스의 `mxp` 자산을 다시
+  내려받으세요.
 
 ### 출처에서
 

@@ -1,0 +1,165 @@
+name: Publish AUR package
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: Existing GitHub release tag to package
+        required: true
+        type: string
+      publish:
+        description: Push the generated commit to AUR
+        required: false
+        default: true
+        type: boolean
+      initialize_empty:
+        description: Allow the first commit to an empty AUR repository
+        required: false
+        default: false
+        type: boolean
+    secrets:
+      AUR_SSH_PRIVATE_KEY:
+        required: false
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing GitHub release tag to package
+        required: true
+        type: string
+      publish:
+        description: Push the generated commit to AUR
+        required: true
+        default: false
+        type: boolean
+      initialize_empty:
+        description: Allow the first commit to an empty AUR repository
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aur-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish mxpak-bin
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    container:
+      image: archlinux:base-devel
+    env:
+      RELEASE_TAG: ${{ inputs.tag }}
+      SHOULD_PUBLISH: ${{ inputs.publish }}
+      INITIALIZE_EMPTY: ${{ inputs.initialize_empty }}
+      AUR_PACKAGE_NAME: mxpak-bin
+
+    steps:
+      - name: Install workflow dependencies
+        run: |
+          pacman -Syu --noconfirm git openssh curl jq
+          useradd --create-home --shell /bin/bash aurbuild
+
+      - name: Check out mxpak
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Prepare non-root build user
+        run: |
+          install -d -o aurbuild -g aurbuild "$RUNNER_TEMP/aur"
+
+      - name: Configure AUR identity
+        if: env.SHOULD_PUBLISH == 'true'
+        env:
+          AUR_GIT_EMAIL: ${{ vars.AUR_GIT_EMAIL }}
+          AUR_GIT_NAME: ${{ vars.AUR_GIT_NAME }}
+          AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+        run: |
+          test -n "$AUR_SSH_PRIVATE_KEY" || {
+            echo "::error::Repository secret AUR_SSH_PRIVATE_KEY is not configured."
+            exit 1
+          }
+
+          install -d -m 700 -o aurbuild -g aurbuild /home/aurbuild/.ssh
+          printf '%s\n' "$AUR_SSH_PRIVATE_KEY" |
+            tr -d '\r' > /home/aurbuild/.ssh/aur
+          ssh-keyscan -T 15 -t ed25519 aur.archlinux.org \
+            > /home/aurbuild/.ssh/known_hosts
+
+          expected_fingerprint="SHA256:RFzBCUItH9LZS0cKB5UE6ceAYhBD5C8GeOBip8Z11+4"
+          mapfile -t actual_fingerprints < <(
+            ssh-keygen -E sha256 -lf /home/aurbuild/.ssh/known_hosts |
+              awk '{ print $2 }' |
+              sort -u
+          )"
+          if (( ${#actual_fingerprints[@]} != 1 )) ||
+            [[ "${actual_fingerprints[0]}" != "$expected_fingerprint" ]]; then
+            echo "::error::Unexpected aur.archlinux.org SSH host key."
+            exit 1
+          fi
+
+          chown aurbuild:aurbuild \
+            /home/aurbuild/.ssh/aur \
+            /home/aurbuild/.ssh/known_hosts
+          chmod 600 \
+            /home/aurbuild/.ssh/aur \
+            /home/aurbuild/.ssh/known_hosts
+
+          cat > /home/aurbuild/.ssh/config <<'EOF'
+          Host aur.archlinux.org
+            User aur
+            IdentityFile ~/.ssh/aur
+            IdentitiesOnly yes
+          EOF
+          chown aurbuild:aurbuild /home/aurbuild/.ssh/config
+          chmod 600 /home/aurbuild/.ssh/config
+
+          runuser -u aurbuild -- env HOME=/home/aurbuild \
+            git config --global user.name \
+            "${AUR_GIT_NAME:-mxpak release automation}"
+          runuser -u aurbuild -- env HOME=/home/aurbuild \
+            git config --global user.email \
+            "${AUR_GIT_EMAIL:-actions@users.noreply.github.com}"
+
+      - name: Prepare and validate AUR update
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          args=(
+            --tag "$RELEASE_TAG"
+            --work-dir "$RUNNER_TEMP/aur"
+            --verify-source
+          )
+
+          if [[ "$SHOULD_PUBLISH" == "true" ]]; then
+            if [[ "$INITIALIZE_EMPTY" == "true" ]]; then
+              args+=(--initialize-empty)
+            fi
+            args+=(--push)
+          else
+            args+=(--offline)
+          fi
+
+          runuser -u aurbuild -- env \
+            HOME=/home/aurbuild \
+            PATH="$PATH" \
+            AUR_PACKAGE_NAME="$AUR_PACKAGE_NAME" \
+            GITHUB_REPOSITORY="$GITHUB_REPOSITORY" \
+            GITHUB_TOKEN="$GITHUB_TOKEN" \
+            bash scripts/update-mxpak-aur.sh "${args[@]}"
+
+      - name: Upload prepared AUR files
+        if: env.SHOULD_PUBLISH != 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: mxpak-bin-${{ env.RELEASE_TAG }}
+          path: |
+            ${{ runner.temp }}/aur/mxpak-bin/PKGBUILD
+            ${{ runner.temp }}/aur/mxpak-bin/.SRCINFO
+            ${{ runner.temp }}/aur/mxpak-bin/LICENCE
+          if-no-files-found: error

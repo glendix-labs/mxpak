@@ -23,41 +23,34 @@ If the cache and project are on different drives (where hard links don't work), 
 - Windows: `winget install Erlang.ErlangOTP`
 - Linux: `sudo apt-get install erlang` (or your distro's equivalent)
 
-### One-liner
+### Release binary
 
-**macOS / Linux**
-
-```sh
-curl -fsSL https://github.com/glendix-labs/mxpak/releases/latest/download/install.sh | sh
-```
-
-**Windows (PowerShell)**
-
-```powershell
-iwr -useb https://github.com/glendix-labs/mxpak/releases/latest/download/install.ps1 | iex
-```
-
-Both scripts place the `mxp` escript at `~/.mxpak/bin/` (macOS/Linux) or `%USERPROFILE%\.mxpak\bin\` (Windows).
-
-**Windows** — the installer adds the directory to your user `PATH` automatically, but the change only takes effect in **new** terminal windows. To use `mxp` immediately in the same session:
-
-```powershell
-$env:PATH = "$env:USERPROFILE\.mxpak\bin;$env:PATH"
-mxp --version
-```
-
-**macOS / Linux** — add the directory to your shell rc file yourself:
+Download `mxp` from the latest GitHub release, make it executable, and place it
+on `PATH`.
 
 ```sh
-export PATH="$HOME/.mxpak/bin:$PATH"     # add to ~/.zshrc, ~/.bashrc, etc.
-mxp --version
+install -d "$HOME/.local/bin"
+curl -fsSL \
+  https://github.com/glendix-labs/mxpak/releases/latest/download/mxp \
+  -o "$HOME/.local/bin/mxp"
+chmod +x "$HOME/.local/bin/mxp"
 ```
+
+The `mxp` asset is an Erlang escript and can also be run explicitly with
+`escript /path/to/mxp`.
+
+Arch Linux users can install the `mxpak-bin` AUR package after its initial AUR
+publication. Maintainer setup and release automation are documented in
+`AUR_PUBLISHING.md`.
 
 ### Troubleshooting
 
-- **`escript: ... command not found`** — Erlang/OTP is missing. Install via the prerequisite step above and re-run the installer.
-- **`mxp: command not found` (after install)** — open a fresh terminal, or apply PATH in the current session as shown above.
-- **`undefined function mxpak:main/0`** — outdated escript bundle. Re-run the installer to fetch the latest release.
+- **`escript: ... command not found`** — Erlang/OTP is missing. Install it via
+  the prerequisite step above.
+- **`mxp: command not found`** — ensure the install directory, such as
+  `$HOME/.local/bin`, is on `PATH`.
+- **`undefined function mxpak:main/0`** — download the current `mxp` release
+  asset again.
 
 ### From source
 
