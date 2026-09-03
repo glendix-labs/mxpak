@@ -1,9 +1,11 @@
 //// Tests mxpak behavior for mxpak.
 ////
 
+import gleam/list
 import gleeunit
 import gleeunit/should
 import mxpak/cli
+import mxpak/widget
 
 /// Runs this module's test suite.
 pub fn main() -> Nil {
@@ -21,6 +23,18 @@ pub fn parse_empty_test() -> Nil {
 pub fn parse_version_test() -> Nil {
   cli.parse(["--version"])
   |> should.equal(cli.Version)
+  Nil
+}
+
+/// Verifies widget names are safe path segments.
+pub fn widget_validate_name_test() -> Nil {
+  ["DataGrid", "com.example.Widget", "Chart 2"]
+  |> list.each(fn(name) { widget.validate_name(name) |> should.be_ok })
+  [
+    "", ".", "..", "../sibling", "nested/evil", "nested\\evil", "/absolute/evil",
+    "a\u{0000}b",
+  ]
+  |> list.each(fn(name) { widget.validate_name(name) |> should.be_error })
   Nil
 }
 

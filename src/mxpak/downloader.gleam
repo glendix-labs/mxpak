@@ -39,6 +39,7 @@ pub fn download_and_extract(
   content_id content_id: option.Option(Int),
   project_root project_root: String,
 ) -> Result(DownloadResult, error.Error) {
+  use _ <- result.try(widget.validate_name(name))
   let cache_dir = project_root <> "/build/widgets/" <> name
   use zip_data <- result.try(download_binary(url))
   let hash = integrity.sha256(zip_data)
@@ -92,6 +93,7 @@ pub fn download_mpk(
   content_id content_id: option.Option(Int),
   target_path target_path: String,
 ) -> Result(DownloadResult, error.Error) {
+  use _ <- result.try(widget.validate_name(name))
   use zip_data <- result.try(download_binary(url))
   let hash = integrity.sha256(zip_data)
   use cached <- result.try(cache.has(hash))
@@ -134,6 +136,7 @@ pub fn restore_from_cache(
   content_id content_id: option.Option(Int),
   project_root project_root: String,
 ) -> Result(DownloadResult, error.Error) {
+  use _ <- result.try(widget.validate_name(name))
   let cache_dir = project_root <> "/build/widgets/" <> name
   use _ <- result.try(cache.restore(hash, cache_dir))
   use has_mjs <- result.try(has_mjs_in_dir(cache_dir))
