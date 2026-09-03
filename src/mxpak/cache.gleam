@@ -23,6 +23,11 @@ pub fn has(hash hash: String) -> Result(Bool, error.Error) {
   store.has(hash)
 }
 
+/// Reports whether a complete package cache entry exists.
+pub fn has_package(hash hash: String) -> Result(Bool, error.Error) {
+  store.has_package(hash)
+}
+
 /// Stores an MPK and its extracted entries in the content-addressable cache.
 pub fn put(
   data data: BitArray,

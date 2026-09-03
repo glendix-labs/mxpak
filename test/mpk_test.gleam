@@ -79,7 +79,7 @@ pub fn zip_extract_corrupted_directory_offset_test() -> Nil {
   Nil
 }
 
-// A stored ZIP archive containing one ../evil.txt entry.
+/// Verifies parse widget name behavior.
 pub fn parse_widget_name_test() -> Nil {
   let xml = "<widget><name>DataGrid</name></widget>"
   xml.parse_widget_name(xml)
@@ -242,6 +242,7 @@ pub fn metadata_classic_roundtrip_test() -> Nil {
   Nil
 }
 
+// A stored ZIP archive containing one ../evil.txt entry.
 fn parent_directory_zip_binary() -> BitArray {
   <<
     0x50, 0x4b, 0x03, 0x04, 0x14, 0x00, 0x00, 0x00, 0x00, 0x00, 0xf4, 0x4c, 0x23,
@@ -305,7 +306,6 @@ fn truncated_zip_binary() -> BitArray {
   >>
 }
 
-/// Verifies parse widget name behavior.
 // A ZIP archive whose central-directory offset points beyond the buffer.
 
 fn corrupted_offset_zip_binary() -> BitArray {

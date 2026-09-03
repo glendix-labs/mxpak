@@ -83,6 +83,64 @@ pub fn store_has_missing_test() -> Nil {
   Nil
 }
 
+/// Verifies package stores write a manifest and restore only payload entries.
+pub fn store_put_completes_packages_test() -> Nil {
+  let data = <<"package bytes":utf8>>
+  let entries = [
+    #("package.xml", <<"<package/>":utf8>>),
+    #("com/Widget.mjs", <<"export default 1":utf8>>),
+  ]
+  let stored =
+    store.put(data, entries)
+    |> should.be_ok
+  let hash = stored.1
+  store.has_package(hash)
+  |> should.be_ok
+  |> should.be_true
+  let target = "build/test_tmp/restore_complete"
+  store.link_to_project(hash, target)
+  |> should.be_ok
+  simplifile.is_file(target <> "/manifest.mxpak")
+  |> should.be_ok
+  |> should.be_false
+  simplifile.is_file(target <> "/com/Widget.mjs")
+  |> should.be_ok
+  |> should.be_true
+  simplifile.delete(target)
+  |> should.be_ok
+  simplifile.delete(store.cache_path(hash))
+  |> should.be_ok
+  Nil
+}
+
+/// Verifies incomplete package directories are rebuilt instead of trusted.
+pub fn store_put_rebuilds_incomplete_packages_test() -> Nil {
+  let data = <<"incomplete package":utf8>>
+  let hash = integrity.sha256(data)
+  let dir = store.cache_path(hash)
+  simplifile.create_directory_all(dir)
+  |> should.be_ok
+  simplifile.write_bits(dir <> "/partial.txt", <<"partial":utf8>>)
+  |> should.be_ok
+  store.has_package(hash)
+  |> should.be_ok
+  |> should.be_false
+  store.put(data, [#("complete.txt", <<"complete":utf8>>)])
+  |> should.be_ok
+  store.has_package(hash)
+  |> should.be_ok
+  |> should.be_true
+  simplifile.is_file(dir <> "/partial.txt")
+  |> should.be_ok
+  |> should.be_false
+  simplifile.is_file(dir <> "/complete.txt")
+  |> should.be_ok
+  |> should.be_true
+  simplifile.delete(dir)
+  |> should.be_ok
+  Nil
+}
+
 /// Verifies cache roundtrip behavior.
 pub fn cache_roundtrip_test() -> Nil {
   let data = <<"roundtrip test":utf8>>
