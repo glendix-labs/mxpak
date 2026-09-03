@@ -2,6 +2,7 @@
 ////
 
 import gleam/dict
+import gleam/list
 import gleam/option
 import gleam/result
 import mxpak/error
@@ -93,12 +94,21 @@ fn extract_project_config(
     Ok(widgets_table) -> parse_widgets(widgets_table)
     Error(_) -> dict.new()
   }
+  use _ <- result.try(validate_widget_names(widgets))
   Ok(ProjectConfig(
     mendix_version: mendix_version,
     mode: mode,
     widgets_dir: widgets_dir,
     widgets: widgets,
   ))
+}
+
+fn validate_widget_names(
+  widgets: dict.Dict(String, WidgetConfig),
+) -> Result(Nil, error.Error) {
+  widgets
+  |> dict.keys
+  |> list.try_each(widget.validate_name)
 }
 
 fn parse_widgets(

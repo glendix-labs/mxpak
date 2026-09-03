@@ -2,6 +2,7 @@
 ////
 
 import gleam/dict
+import gleam/list
 import gleam/option
 import gleam/string
 import gleeunit
@@ -373,6 +374,50 @@ pub fn env_reader_missing_file_test() -> Nil {
   env_reader.get("KEY", "build/test_tmp/no_env")
   |> should.be_ok
   |> should.be_none
+  Nil
+}
+
+/// Verifies traversal widget names are rejected at the configuration boundary.
+pub fn read_config_rejects_path_traversal_names_test() -> Nil {
+  let cases = [
+    #("../../evil", "parent"),
+    #("/absolute/evil", "absolute"),
+    #("..", "dot"),
+    #("nested/evil", "nested"),
+    #("nested\\evil", "backslash"),
+  ]
+  list.each(cases, fn(pair) {
+    let #(name, slug) = pair
+    let dir = "build/test_tmp/traversal_" <> slug
+    simplifile.create_directory_all(dir)
+    |> should.be_ok
+    simplifile.write(
+      dir <> "/gleam.toml",
+      "[tools.mxpak.widgets.\"" <> name <> "\"]\nversion = \"1.0.0\"\n",
+    )
+    |> should.be_ok
+    toml_reader.read_config(dir)
+    |> should.be_error
+    simplifile.delete(dir)
+    |> should.be_ok
+  })
+  Nil
+}
+
+/// Verifies legal dotted widget names remain accepted.
+pub fn read_config_accepts_dotted_names_test() -> Nil {
+  let dir = "build/test_tmp/dotted_name"
+  simplifile.create_directory_all(dir)
+  |> should.be_ok
+  simplifile.write(
+    dir <> "/gleam.toml",
+    "[tools.mxpak.widgets.\"com.example.Widget\"]\nversion = \"1.0.0\"\n",
+  )
+  |> should.be_ok
+  toml_reader.read_config(dir)
+  |> should.be_ok
+  simplifile.delete(dir)
+  |> should.be_ok
   Nil
 }
 
