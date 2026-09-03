@@ -3,6 +3,7 @@
 
 import gleam/list
 import gleam/result
+import gleam/string
 import mxpak/error
 
 /// A typed `ZipEntry` value used by the zip capability.
@@ -15,11 +16,11 @@ pub type ZipEntry {
 pub fn extract(
   zip_binary zip_binary: BitArray,
 ) -> Result(List(ZipEntry), error.Error) {
-  unzip_to_memory(zip_binary)
-  |> result.map(fn(raw_entries) {
-    list.map(raw_entries, fn(entry) {
-      ZipEntry(name: entry.0, content: entry.1)
-    })
+  use raw_entries <- result.try(unzip_to_memory(zip_binary))
+  raw_entries
+  |> list.try_map(fn(entry) {
+    use _ <- result.try(validate_entry_name(entry.0))
+    Ok(ZipEntry(name: entry.0, content: entry.1))
   })
 }
 
@@ -40,6 +41,20 @@ pub fn list_entries(
 ) -> Result(List(String), error.Error) {
   use entries <- result.map(extract(zip_binary))
   list.map(entries, fn(e) { e.name })
+}
+
+/// Rejects archive paths that could escape an extraction root.
+fn validate_entry_name(name name: String) -> Result(Nil, error.Error) {
+  let segments = string.split(name, "/")
+  case
+    name == ""
+    || string.starts_with(name, "/")
+    || string.contains(name, "\\")
+    || list.contains(segments, "..")
+  {
+    True -> Error(error.download("ZIP 엔트리 경로가 안전하지 않습니다: " <> name))
+    False -> Ok(Nil)
+  }
 }
 
 // -- Erlang FFI --
