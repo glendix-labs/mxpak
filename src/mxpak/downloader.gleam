@@ -43,7 +43,7 @@ pub fn download_and_extract(
   let cache_dir = project_root <> "/build/widgets/" <> name
   use zip_data <- result.try(download_binary(url))
   let hash = integrity.sha256(zip_data)
-  use cached <- result.try(cache.has(hash))
+  use cached <- result.try(cache.has_package(hash))
   case cached {
     True -> {
       io.println_error(name <> " v" <> version <> " — 캐시 히트")
@@ -96,7 +96,7 @@ pub fn download_mpk(
   use _ <- result.try(widget.validate_name(name))
   use zip_data <- result.try(download_binary(url))
   let hash = integrity.sha256(zip_data)
-  use cached <- result.try(cache.has(hash))
+  use cached <- result.try(cache.has_package(hash))
   case cached {
     True -> {
       io.println_error(name <> " v" <> version <> " — 캐시 히트")

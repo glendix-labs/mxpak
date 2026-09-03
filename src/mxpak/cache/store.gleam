@@ -2,6 +2,7 @@
 ////
 
 // CAS (Content-Addressable Storage) — ~/.mxpak/store/{sha256}/
+import gleam/int
 import gleam/list
 import gleam/result
 import gleam/string
@@ -31,6 +32,31 @@ pub fn has(hash hash: String) -> Result(Bool, error.Error) {
   })
 }
 
+/// Reports whether a complete package cache entry exists.
+///
+/// A package entry is complete only when its original MPK and the manifest
+/// written after every entry are present.
+pub fn has_package(hash hash: String) -> Result(Bool, error.Error) {
+  let dir = cache_path(hash)
+  use directory_exists <- result.try(
+    simplifile.is_directory(dir)
+    |> result.map_error(fn(reason) {
+      error.cache("캐시 경로 확인 실패: " <> dir <> ": " <> string.inspect(reason))
+    }),
+  )
+  case directory_exists {
+    False -> Ok(False)
+    True ->
+      simplifile.is_file(dir <> "/" <> manifest_filename)
+      |> result.map_error(fn(reason) {
+        error.cache("캐시 매니페스트 확인 실패: " <> dir <> ": " <> string.inspect(reason))
+      })
+      |> result.map(fn(manifest_exists) {
+        manifest_exists && is_original_present(dir)
+      })
+  }
+}
+
 /// Stores an MPK and its entries under their content hash.
 pub fn put(
   data data: BitArray,
@@ -38,22 +64,23 @@ pub fn put(
 ) -> Result(#(String, String), error.Error) {
   let hash = integrity.sha256(data)
   let dir = cache_path(hash)
-  use cached <- result.try(has(hash))
+  use cached <- result.try(has_package(hash))
   case cached {
     True -> Ok(#(dir, hash))
     False -> {
+      let temp_dir = dir <> ".tmp-" <> int.to_string(unique_integer())
       use _ <- result.try(
-        simplifile.create_directory_all(dir)
-        |> result.map_error(fn(_) { error.cache("캐시 디렉토리 생성 실패: " <> dir) }),
+        simplifile.create_directory_all(temp_dir)
+        |> result.map_error(fn(_) { error.cache("캐시 디렉토리 생성 실패: " <> temp_dir) }),
       )
       use _ <- result.try(
-        simplifile.write_bits(dir <> "/original.mpk", data)
+        simplifile.write_bits(temp_dir <> "/original.mpk", data)
         |> result.map_error(fn(_) { error.cache("원본 .mpk 캐시 저장 실패") }),
       )
       use _ <- result.try(
         list.try_each(entries, fn(entry) {
           let #(name, content) = entry
-          let out_path = dir <> "/" <> name
+          let out_path = temp_dir <> "/" <> name
           let out_dir = dirname(out_path)
           use _ <- result.try(
             simplifile.create_directory_all(out_dir)
@@ -62,6 +89,22 @@ pub fn put(
           simplifile.write_bits(out_path, content)
           |> result.map_error(fn(_) { error.cache("캐시 파일 쓰기 실패: " <> out_path) })
         }),
+      )
+      use _ <- result.try(
+        simplifile.write(
+          temp_dir <> "/" <> manifest_filename,
+          entries
+            |> list.map(fn(entry) { entry.0 })
+            |> string.join("\n"),
+        )
+        |> result.map_error(fn(_) {
+          error.cache("캐시 매니페스트 저장 실패: " <> temp_dir)
+        }),
+      )
+      use _ <- result.try(remove_incomplete_directory(dir))
+      use _ <- result.try(
+        simplifile.rename(temp_dir, dir)
+        |> result.map_error(fn(_) { error.cache("캐시 디렉토리 확정 실패: " <> dir) }),
       )
       Ok(#(dir, hash))
     }
@@ -168,6 +211,8 @@ pub fn create_hard_link(
   make_hard_link(existing_path, new_path)
 }
 
+const manifest_filename = "manifest.mxpak"
+
 fn dirname(path: String) -> String {
   let parts = string.split(path, "/")
   case list.length(parts) > 1 {
@@ -199,7 +244,7 @@ fn link_dir(src: String, dest: String) -> Result(Nil, error.Error) {
     |> result.map_error(fn(_) { error.cache("디렉토리 읽기 실패: " <> src) }),
   )
   list.try_each(files, fn(file) {
-    case file == "original.mpk" {
+    case file == "original.mpk" || file == manifest_filename {
       True -> Ok(Nil)
       False -> link_entry(src <> "/" <> file, dest <> "/" <> file)
     }
@@ -223,6 +268,23 @@ fn link_entry(src_path: String, dest_path: String) -> Result(Nil, error.Error) {
   }
 }
 
+fn remove_incomplete_directory(dir: String) -> Result(Nil, error.Error) {
+  case simplifile.is_directory(dir) {
+    Ok(True) ->
+      simplifile.delete(dir)
+      |> result.map_error(fn(_) { error.cache("불완전한 캐시 디렉토리 삭제 실패: " <> dir) })
+    Ok(False) -> Ok(Nil)
+    Error(_) -> Ok(Nil)
+  }
+}
+
+fn is_original_present(dir: String) -> Bool {
+  case simplifile.is_file(dir <> "/original.mpk") {
+    Ok(found) -> found
+    Error(_) -> False
+  }
+}
+
 // -- FFI --
 
 @external(erlang, "mxpak_ffi", "make_hard_link")
@@ -233,3 +295,8 @@ fn make_hard_link(
 
 @external(erlang, "mxpak_ffi", "get_home_dir")
 fn get_home_dir() -> Result(String, error.MissingValue)
+
+// -- FFI --
+
+@external(erlang, "erlang", "unique_integer")
+fn unique_integer() -> Int
