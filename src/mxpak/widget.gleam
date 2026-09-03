@@ -24,7 +24,9 @@ pub fn is_classic(kind kind: Kind) -> Bool {
 ///
 /// Widget names originate in project TOML files, so they are untrusted path
 /// segments. Dotted names remain valid because they are legal TOML section
-/// names and safe single path segments.
+/// names and safe single path segments. Quotes are rejected because the
+/// configured TOML parser cannot round-trip quoted keys that contain escaped
+/// quotes, in addition to the path-safety rules above.
 pub fn validate_name(name name: String) -> Result(Nil, error.Error) {
   case name {
     "" ->
@@ -39,11 +41,13 @@ pub fn validate_name(name name: String) -> Result(Nil, error.Error) {
       case
         string.contains(name, "/")
         || string.contains(name, "\\")
+        || string.contains(name, "\"")
         || string.contains(name, "\u{0000}")
       {
         True ->
           Error(error.configuration(
-            "Widget name must not contain path separators or NUL: " <> name,
+            "Widget name must not contain path separators, quotes, or NUL: "
+            <> name,
           ))
         False -> Ok(Nil)
       }

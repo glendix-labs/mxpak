@@ -7,6 +7,7 @@ import gleam/option
 import gleam/result
 import gleam/string
 import mxpak/error
+import mxpak/toml_syntax
 import mxpak/widget
 import simplifile
 
@@ -25,9 +26,9 @@ pub fn write_widget(
   )
   let section_header = "[tools.mxpak.widgets." <> quote_key(name) <> "]"
   let entries =
-    [#("version", quote_string(version))]
+    [#("version", toml_syntax.quote_basic_string(version))]
     |> append_opt(content_id, fn(id) { #("id", int.to_string(id)) })
-    |> append_opt(s3_id, fn(s) { #("s3_id", quote_string(s)) })
+    |> append_opt(s3_id, fn(s) { #("s3_id", toml_syntax.quote_basic_string(s)) })
   let new_content = case string.contains(content, section_header) {
     True ->
       list.fold(entries, content, fn(acc, entry) {
@@ -68,7 +69,7 @@ pub fn write_meta_toml(
   id id: option.Option(Int),
   kind kind: widget.Kind,
 ) -> Result(Nil, error.Error) {
-  let lines = ["version = " <> quote_string(version)]
+  let lines = ["version = " <> toml_syntax.quote_basic_string(version)]
   let lines = case id {
     option.Some(i) -> list.append(lines, ["id = " <> int.to_string(i)])
     option.None -> lines
@@ -83,18 +84,7 @@ pub fn write_meta_toml(
 
 /// Quotes a TOML key when required.
 pub fn quote_key(name name: String) -> String {
-  case
-    string.contains(name, " ")
-    || string.contains(name, "-")
-    || string.contains(name, ".")
-  {
-    True -> "\"" <> name <> "\""
-    False -> name
-  }
-}
-
-fn quote_string(value: String) -> String {
-  "\"" <> value <> "\""
+  toml_syntax.quote_key(name)
 }
 
 /// Updates the key in section.

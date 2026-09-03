@@ -421,6 +421,33 @@ pub fn read_config_accepts_dotted_names_test() -> Nil {
   Nil
 }
 
+/// Verifies hostile strings round-trip through written widget configuration.
+pub fn write_widget_escapes_hostile_strings_test() -> Nil {
+  let dir = "build/test_tmp/escaping"
+  let hostile_version = "1.0\"0\\n\u{0009}x"
+  simplifile.create_directory_all(dir)
+  |> should.be_ok
+  simplifile.write(dir <> "/gleam.toml", "name = \"host\"\n")
+  |> should.be_ok
+  toml_writer.write_widget(
+    dir,
+    "Data Grid",
+    hostile_version,
+    option.Some(7),
+    option.Some("a\\b\"c"),
+  )
+  |> should.be_ok
+  let config = toml_reader.read_config(dir) |> should.be_ok
+  let widget = dict.get(config.widgets, "Data Grid") |> should.be_ok
+  widget.version
+  |> should.equal(hostile_version)
+  widget.s3_id
+  |> should.equal(option.Some("a\\b\"c"))
+  simplifile.delete(dir)
+  |> should.be_ok
+  Nil
+}
+
 fn contains(haystack: String, needle: String) -> Bool {
   string.contains(haystack, needle)
 }

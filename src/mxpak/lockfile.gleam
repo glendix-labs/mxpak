@@ -8,6 +8,7 @@ import gleam/option
 import gleam/result
 import gleam/string
 import mxpak/error
+import mxpak/toml_syntax
 import mxpak/widget
 import simplifile
 import tom
@@ -148,8 +149,8 @@ fn serialize_lockfile(entries: dict.Dict(String, LockEntry)) -> String {
 fn serialize_entry(name: String, entry: LockEntry) -> String {
   let header = "[widgets." <> quote_key(name) <> "]\n"
   let lines = [
-    "version = \"" <> entry.version <> "\"",
-    "hash = \"" <> entry.hash <> "\"",
+    "version = " <> toml_syntax.quote_basic_string(entry.version),
+    "hash = " <> toml_syntax.quote_basic_string(entry.hash),
   ]
   let lines = case entry.content_id {
     option.Some(id) ->
@@ -157,7 +158,10 @@ fn serialize_entry(name: String, entry: LockEntry) -> String {
     option.None -> lines
   }
   let lines = case entry.s3_id {
-    option.Some(s3) -> list.append(lines, ["s3_id = \"" <> s3 <> "\""])
+    option.Some(s3) ->
+      list.append(lines, [
+        "s3_id = " <> toml_syntax.quote_basic_string(s3),
+      ])
     option.None -> lines
   }
   let lines = case entry.kind {
@@ -168,12 +172,5 @@ fn serialize_entry(name: String, entry: LockEntry) -> String {
 }
 
 fn quote_key(name: String) -> String {
-  case
-    string.contains(name, " ")
-    || string.contains(name, "-")
-    || string.contains(name, ".")
-  {
-    True -> "\"" <> name <> "\""
-    False -> name
-  }
+  toml_syntax.quote_key(name)
 }
