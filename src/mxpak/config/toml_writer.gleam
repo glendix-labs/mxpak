@@ -94,7 +94,8 @@ fn update_key_in_section(
   key: String,
   value: String,
 ) -> String {
-  let lines = string.split(content, "\n")
+  let newline = newline_of(content)
+  let lines = split_lines(content)
   let new_line = key <> " = " <> value
   let #(result_lines, _, found_key) =
     list.fold(lines, #([], False, False), fn(state, line) {
@@ -129,19 +130,23 @@ fn update_key_in_section(
     True -> result_lines
     False -> [new_line, ..result_lines]
   }
-  list.reverse(final_lines) |> string.join("\n")
+  list.reverse(final_lines) |> string.join(newline)
 }
 
 /// Inserts configuration after the mxpak tool section.
 fn insert_after_mxpak_section(content: String, block: String) -> String {
-  let lines = string.split(content, "\n")
+  let newline = newline_of(content)
+  let lines = split_lines(content)
   let last_mxpak_index = find_last_mxpak_line(lines, 0, -1, False)
   case last_mxpak_index >= 0 {
     True -> {
       let #(before, after) = list_split_at(lines, last_mxpak_index + 1)
-      string.join(before, "\n") <> block <> string.join(after, "\n")
+      let styled_block = string.replace(block, "\n", newline)
+      string.join(before, newline)
+      <> styled_block
+      <> string.join(after, newline)
     }
-    False -> content <> block
+    False -> content <> string.replace(block, "\n", newline)
   }
 }
 
@@ -173,7 +178,8 @@ fn find_last_mxpak_line(
 
 /// Removes the section.
 fn remove_section(content: String, section_header: String) -> String {
-  let lines = string.split(content, "\n")
+  let newline = newline_of(content)
+  let lines = split_lines(content)
   let #(result_lines, _) =
     list.fold(lines, #([], False), fn(state, line) {
       let #(acc, skipping) = state
@@ -191,7 +197,20 @@ fn remove_section(content: String, section_header: String) -> String {
           }
       }
     })
-  list.reverse(result_lines) |> string.join("\n")
+  list.reverse(result_lines) |> string.join(newline)
+}
+
+/// Detects the dominant line ending of an owned configuration file.
+fn newline_of(content: String) -> String {
+  case string.contains(content, "\r\n") {
+    True -> "\r\n"
+    False -> "\n"
+  }
+}
+
+/// Splits content with its detected line ending.
+fn split_lines(content: String) -> List(String) {
+  string.split(content, newline_of(content))
 }
 
 fn append_opt(
