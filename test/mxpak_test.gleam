@@ -32,7 +32,7 @@ pub fn widget_validate_name_test() -> Nil {
   |> list.each(fn(name) { widget.validate_name(name) |> should.be_ok })
   [
     "", ".", "..", "../sibling", "nested/evil", "nested\\evil", "/absolute/evil",
-    "a\u{0000}b",
+    "a\u{0000}b", "quote\"name",
   ]
   |> list.each(fn(name) { widget.validate_name(name) |> should.be_error })
   Nil

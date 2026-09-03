@@ -155,6 +155,38 @@ pub fn quoted_key_test() -> Nil {
   Nil
 }
 
+/// Verifies hostile names and versions round-trip through the lockfile.
+pub fn hostile_values_round_trip_test() -> Nil {
+  let dir = "build/test_tmp/lock5"
+  let hostile_name = "Data Grid 1"
+  let hostile_version = "1.0\"0\n"
+  simplifile.create_directory_all(dir)
+  |> should.be_ok
+  let entries =
+    dict.new()
+    |> dict.insert(
+      hostile_name,
+      lockfile.LockEntry(
+        hostile_version,
+        "hash",
+        option.None,
+        option.Some("s3\"id"),
+        widget.Pluggable,
+      ),
+    )
+  lockfile.write(dir, entries)
+  |> should.be_ok
+  let lock = lockfile.read(dir) |> should.be_ok
+  let entry = lockfile.get_entry(lock, hostile_name) |> should.be_ok
+  entry.version
+  |> should.equal(hostile_version)
+  entry.s3_id
+  |> should.equal(option.Some("s3\"id"))
+  simplifile.delete(dir)
+  |> should.be_ok
+  Nil
+}
+
 fn string_contains(haystack: String, needle: String) -> Bool {
   string.contains(haystack, needle)
 }
