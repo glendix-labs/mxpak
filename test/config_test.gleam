@@ -448,6 +448,50 @@ pub fn write_widget_escapes_hostile_strings_test() -> Nil {
   Nil
 }
 
+/// Verifies updates preserve a CRLF configuration file's line endings.
+pub fn write_widget_preserves_crlf_test() -> Nil {
+  let dir = "build/test_tmp/crlf"
+  simplifile.create_directory_all(dir)
+  |> should.be_ok
+  simplifile.write(
+    dir <> "/gleam.toml",
+    "name = \"host\"\r\n\r\n[tools.mxpak.widgets.DataGrid]\r\nversion = \"1.0.0\"\r\nid = 1\r\n",
+  )
+  |> should.be_ok
+  toml_writer.write_widget(dir, "DataGrid", "2.0.0", option.None, option.None)
+  |> should.be_ok
+  let updated = simplifile.read(dir <> "/gleam.toml") |> should.be_ok
+  updated
+  |> string.contains("version = \"2.0.0\"")
+  |> should.be_true
+  assert_only_crlf_line_endings(updated)
+  toml_writer.write_widget(dir, "NewGrid", "1.0.0", option.None, option.None)
+  |> should.be_ok
+  let inserted = simplifile.read(dir <> "/gleam.toml") |> should.be_ok
+  inserted
+  |> string.contains("[tools.mxpak.widgets.NewGrid]")
+  |> should.be_true
+  assert_only_crlf_line_endings(inserted)
+  toml_writer.remove_widget(dir, "DataGrid")
+  |> should.be_ok
+  let removed = simplifile.read(dir <> "/gleam.toml") |> should.be_ok
+  removed
+  |> string.contains("[tools.mxpak.widgets.DataGrid]")
+  |> should.be_false
+  assert_only_crlf_line_endings(removed)
+  simplifile.delete(dir)
+  |> should.be_ok
+  Nil
+}
+
+fn assert_only_crlf_line_endings(content: String) -> Nil {
+  content
+  |> string.split("\r\n")
+  |> list.all(fn(line) { !string.contains(line, "\n") })
+  |> should.be_true
+  Nil
+}
+
 fn contains(haystack: String, needle: String) -> Bool {
   string.contains(haystack, needle)
 }
