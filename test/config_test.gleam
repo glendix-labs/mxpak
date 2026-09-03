@@ -335,6 +335,39 @@ pub fn env_reader_quoted_value_test() -> Nil {
   Nil
 }
 
+/// Verifies hostile dotenv values are preserved as inert data.
+pub fn env_reader_hostile_value_test() -> Nil {
+  let dir = "build/test_tmp/env3"
+  simplifile.create_directory_all(dir)
+  |> should.be_ok
+  simplifile.write(
+    dir <> "/.env",
+    "MENDIX_PAT=$(touch /tmp/mendraw-pwned)`id`'a\"b&whoami\n",
+  )
+  |> should.be_ok
+  env_reader.get("MENDIX_PAT", dir)
+  |> should.be_ok
+  |> should.equal(option.Some("$(touch /tmp/mendraw-pwned)`id`'a\"b&whoami"))
+  simplifile.delete(dir)
+  |> should.be_ok
+  Nil
+}
+
+/// Verifies only one surrounding quote pair is removed.
+pub fn env_reader_inner_quotes_are_preserved_test() -> Nil {
+  let dir = "build/test_tmp/env4"
+  simplifile.create_directory_all(dir)
+  |> should.be_ok
+  simplifile.write(dir <> "/.env", "KEY=\"a\"b\"\n")
+  |> should.be_ok
+  env_reader.get("KEY", dir)
+  |> should.be_ok
+  |> should.equal(option.Some("a\"b"))
+  simplifile.delete(dir)
+  |> should.be_ok
+  Nil
+}
+
 /// Verifies env reader missing file behavior.
 pub fn env_reader_missing_file_test() -> Nil {
   env_reader.get("KEY", "build/test_tmp/no_env")

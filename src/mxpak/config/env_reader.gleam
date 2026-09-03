@@ -57,8 +57,27 @@ fn read_from_dotenv(
   }
 }
 
-fn strip_quotes(s: String) -> String {
-  s
-  |> string.replace("\"", "")
-  |> string.replace("'", "")
+fn strip_quotes(value value: String) -> String {
+  case
+    string.length(value) >= 2
+    && string.starts_with(value, "\"")
+    && string.ends_with(value, "\"")
+  {
+    True ->
+      value
+      |> string.drop_start(1)
+      |> string.drop_end(1)
+    False ->
+      case
+        string.length(value) >= 2
+        && string.starts_with(value, "'")
+        && string.ends_with(value, "'")
+      {
+        True ->
+          value
+          |> string.drop_start(1)
+          |> string.drop_end(1)
+        False -> value
+      }
+  }
 }
