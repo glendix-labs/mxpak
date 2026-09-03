@@ -421,6 +421,58 @@ pub fn read_config_accepts_dotted_names_test() -> Nil {
   Nil
 }
 
+/// Verifies missing keys are reinserted inside an existing mid-file section.
+pub fn write_widget_reinserts_missing_key_test() -> Nil {
+  let dir = "build/test_tmp/reinsert"
+  simplifile.create_directory_all(dir)
+  |> should.be_ok
+  simplifile.write(
+    dir <> "/gleam.toml",
+    "name = \"host\"\n\n[tools.mxpak.widgets.DataGrid]\nversion = \"1.0.0\"\nid = 7\n\n[other]\nkey = \"value\"\n",
+  )
+  |> should.be_ok
+  toml_writer.write_widget(
+    dir,
+    "DataGrid",
+    "1.0.0",
+    option.Some(7),
+    option.Some("restored/s3/id"),
+  )
+  |> should.be_ok
+  let content = simplifile.read(dir <> "/gleam.toml") |> should.be_ok
+  content
+  |> string.contains("s3_id = \"restored/s3/id\"\n[other]")
+  |> should.be_true
+  let config = toml_reader.read_config(dir) |> should.be_ok
+  let widget = dict.get(config.widgets, "DataGrid") |> should.be_ok
+  widget.s3_id
+  |> should.equal(option.Some("restored/s3/id"))
+  simplifile.delete(dir)
+  |> should.be_ok
+  Nil
+}
+
+/// Verifies missing keys are appended when the section ends the file.
+pub fn write_widget_appends_missing_key_to_last_section_test() -> Nil {
+  let dir = "build/test_tmp/reinsert_last"
+  simplifile.create_directory_all(dir)
+  |> should.be_ok
+  simplifile.write(
+    dir <> "/gleam.toml",
+    "[tools.mxpak.widgets.LastWidget]\nversion = \"1.0.0\"\n",
+  )
+  |> should.be_ok
+  toml_writer.write_widget(dir, "LastWidget", "2.0.0", option.None, option.None)
+  |> should.be_ok
+  let config = toml_reader.read_config(dir) |> should.be_ok
+  let widget = dict.get(config.widgets, "LastWidget") |> should.be_ok
+  widget.version
+  |> should.equal("2.0.0")
+  simplifile.delete(dir)
+  |> should.be_ok
+  Nil
+}
+
 /// Verifies hostile strings round-trip through written widget configuration.
 pub fn write_widget_escapes_hostile_strings_test() -> Nil {
   let dir = "build/test_tmp/escaping"
