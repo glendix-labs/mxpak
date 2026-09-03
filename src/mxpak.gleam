@@ -7,6 +7,7 @@ import gleam/json
 import gleam/list
 import gleam/option
 import gleam/string
+import mxpak/audit
 import mxpak/cache
 import mxpak/cli
 import mxpak/config
@@ -209,39 +210,43 @@ fn run_info(name: String) -> Nil {
 
 // -- Audit --
 fn run_audit(project_root: String) -> Nil {
-  case lockfile.read(project_root) {
+  case audit.verify(project_root) {
     Ok(lock) -> {
-      let entries = dict.to_list(lock.entries)
+      let entries = lock
       case entries {
         [] -> io.println("락파일에 엔트리 없음")
-        _ ->
-          list.each(entries, fn(pair) {
-            let #(name, entry) = pair
-            case entry.hash {
-              "" -> io.println("  " <> name <> " — 해시 없음 (검증 불가)")
-              hash ->
-                case cache.has(hash) {
-                  Ok(True) ->
-                    io.println("  " <> name <> " v" <> entry.version <> " ✓")
-                  Ok(False) ->
-                    io.println(
-                      "  " <> name <> " v" <> entry.version <> " ✗ 캐시 없음",
-                    )
-                  Error(reason) ->
-                    io.println_error(
-                      "  "
-                      <> name
-                      <> " v"
-                      <> entry.version
-                      <> " — 캐시 확인 실패: "
-                      <> error.message(reason),
-                    )
-                }
-            }
-          })
+        _ -> list.each(entries, fn(pair) { print_audit(pair) })
       }
     }
     Error(_) -> io.println("mxpak.lock 파일이 없습니다. mxp install을 먼저 실행하세요.")
+  }
+}
+
+fn print_audit(entry: audit.EntryAudit) -> Nil {
+  let name = entry.name
+  case entry.status {
+    audit.Verified(version) ->
+      io.println("  " <> name <> " v" <> version <> " ✓")
+    audit.HashMismatch(version, expected, actual) ->
+      io.println(
+        "  "
+        <> name
+        <> " v"
+        <> version
+        <> " ✗ 해시 불일치 (기대 "
+        <> string.slice(expected, 0, 12)
+        <> ", 실제 "
+        <> string.slice(actual, 0, 12)
+        <> ")",
+      )
+    audit.CacheMissing(version) ->
+      io.println("  " <> name <> " v" <> version <> " ✗ 캐시 없음")
+    audit.CacheUnreadable(version, reason) ->
+      io.println_error(
+        "  " <> name <> " v" <> version <> " — 캐시 읽기 실패: " <> reason,
+      )
+    audit.HashUnavailable(version) ->
+      io.println("  " <> name <> " v" <> version <> " — 해시 없음 (검증 불가)")
   }
 }
 
