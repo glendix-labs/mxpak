@@ -33,6 +33,22 @@ pub fn content_page_request_invalid_bounds_test() -> Nil {
   |> should.equal(Error(content_api.InvalidPageBounds(offset: -1, limit: 0)))
 }
 
+/// Verifies hostile tokens stay inert request data instead of shell input.
+pub fn hostile_pat_is_carried_verbatim_test() -> Nil {
+  let hostile = "$(touch /tmp/mendraw-pwned)`id`'a\"b&whoami"
+  let request =
+    content_api.content_page_request(hostile, 0, 40)
+    |> should.be_ok
+  request.headers
+  |> list.key_find("authorization")
+  |> should.equal(Ok("MxToken " <> hostile))
+  let versions_request = content_api.versions_request(hostile, 7)
+  versions_request.headers
+  |> list.key_find("authorization")
+  |> should.equal(Ok("MxToken " <> hostile))
+  Nil
+}
+
 /// Verifies the Sans-IO response decoder filters unsupported content types.
 pub fn content_page_response_contract_test() -> Nil {
   let body =
